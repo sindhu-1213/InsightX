@@ -211,19 +211,8 @@ The model outputs patient clusters and a binary Normal/Abnormal classification. 
 
 ---
 
-## 👩‍💻 Team
-
-| Name | Role |
-|---|---|
-| **Spoorthy S** | ML Pipeline & Feature Fusion |
-| **Sindhuja S** | NLP Pipeline & Text Processing |
-| **Prema M** | CNN Architecture & Image Processing |
-| **Tamilselvi G** | Data Engineering & Evaluation |
-
-**Guide:** Mr. Bhuvanesh  
-**Institution:** Sairam Tap, Chennai  
-**Program:** Edunet Foundation AI Internship
-
+**Guide:** Mr. Bhuvanesh   
+**Program:** AI Career for Women – Edunet Foundation
 ---
 
 ## 🎥 Demo
