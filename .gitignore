@@ -1,0 +1,17 @@
+# React
+insightx-frontend/node_modules/
+insightx-frontend/build/
+
+# Python
+__pycache__/
+*.pyc
+
+# Generated files
+image_features_final.npy
+# Dataset images
+images_normalized/
+project code.npynb
+
+# OS
+.DS_Store
+Thumbs.db

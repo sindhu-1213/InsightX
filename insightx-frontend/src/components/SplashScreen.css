@@ -1,0 +1,33 @@
+/* Reset */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Fullscreen Container */
+
+.splash-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: #020b18;
+  z-index: 9999;
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* Video */
+
+.splash-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}

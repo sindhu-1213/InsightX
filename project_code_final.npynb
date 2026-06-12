@@ -1,0 +1,745 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# %%
+
+
+import os
+import re
+import nltk
+import string
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from wordcloud import WordCloud
+
+import tensorflow as tf
+from nltk.corpus import stopwords
+from tensorflow.keras.applications import MobileNetV2
+from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
+
+import seaborn as sns
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.cluster import KMeans
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import accuracy_score,confusion_matrix
+from sklearn.metrics import average_precision_score
+from sklearn.preprocessing import StandardScaler
+from sklearn.manifold import TSNE
+from sklearn.decomposition import PCA
+
+
+# %%
+
+
+#EDA process
+#load csv file
+df_projection=pd.read_csv('indiana_projections.csv')
+df_report=pd.read_csv('indiana_reports.csv')
+#merge them on uid column and we use inner join to keep both text and image in one row
+merge_df=pd.merge(df_projection,df_report,on='uid',how='inner')
+#clean the data
+print(merge_df.isnull().sum().sum())
+print(merge_df.isnull().sum().sort_values(ascending=1))
+clean_df=merge_df.dropna(subset=['comparison','findings','indication','impression']) #removing the nulls using dropna()
+clean_df=clean_df.reset_index(drop=True)                                             #reseting the index
+print(f'orginal samples{len(merge_df)}')
+print(f'cleaned samples{len(clean_df)}')
+# Remove rows where text is just whitespace or too short to be a real report
+clean_df=clean_df[clean_df['findings'].str.strip().str.len()>5]
+clean_df.duplicated().sum()
+clean_df.to_csv('cleaned_multimodel_dat.csv',index=False)
+# Path Integrity Check
+image_folder = "images_normalized"
+clean_df['full_path'] = clean_df['filename'].apply(lambda x: os.path.join(image_folder, x.strip()))
+exists = clean_df['full_path'].apply(lambda x: os.path.exists(x))
+clean_df = clean_df[exists].reset_index(drop=True) 
+print(f"Verified Dataset Size: {len(clean_df)}")
+
+
+# %%
+
+
+#NLP
+
+import nltk
+from nltk.corpus import stopwords
+nltk.download('stopwords')
+stop_words=set(stopwords.words('english'))
+stop_words
+def get_medical_cleaning_tools():
+    """
+    Customizes the stopword list for medical reports.
+    Keeps negation words like 'no', 'not', 'without'.
+    """
+    stop_words = set(stopwords.words('english'))
+    # Removing negation words from the stopword list
+    # In radiology, "no pneumonia" is the opposite of "pneumonia"
+    negations = {'no', 'not', 'none', 'neither', 'never', 'without', 'negative'}
+    medical_stop_words = stop_words - negations
+    return medical_stop_words
+def clean_medical_text(text,medical_stop_words):
+    text=str(text) #Ensure text is a string
+    text=text.lower()   #converting all string to lower case
+    # Removing Punctuation
+    # This keeps alphanumeric characters and removes symbols like ! . , ; :
+    text = re.sub(f"[{re.escape(string.punctuation)}]", " ", text)
+    # Removing (Medical-Safe) Stop Words
+    words = text.split()
+    cleaned_words = [w for w in words if w not in medical_stop_words]
+    # Join back and remove extra whitespaces
+    return " ".join(cleaned_words).strip()   
+med_stops = get_medical_cleaning_tools()
+
+# Apply to your Master Table
+# dataframe is called 'clean_df'
+clean_df['findings_proc'] = clean_df['findings'].apply(lambda x: clean_medical_text(x, med_stops))
+clean_df['impression_proc'] = clean_df['impression'].apply(lambda x: clean_medical_text(x, med_stops))
+
+# 1. Initialize the Vectorizer
+# max_features=1000 keeps the top 1000 most important words (prevents memory crashes)
+tfidf_vec = TfidfVectorizer(max_features=1000)
+
+# 2. Fit and Transform the Findings
+# This creates a 'Sparse Matrix' of numbers
+text_features = tfidf_vec.fit_transform(clean_df['findings_proc'])
+
+# Convert to a regular array for fusion later
+text_vectors = text_features.toarray()
+
+print(f"Text Feature Shape: {text_vectors.shape}") # Should be (Number of samples, 1000)
+
+
+
+# %%
+
+
+#CNN
+# Load pre-trained model without the final classification layer
+base_model = MobileNetV2(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
+
+# Create a function to load and process images (TensorFlow compatible)
+def load_and_preprocess(path):
+    img = tf.io.read_file(path)
+    img = tf.image.decode_png(img, channels=3)
+    img = tf.image.resize(img, [224, 224])
+    return preprocess_input(img)
+
+# Build the "Fast Pipeline"
+# This prepares images while the CPU/GPU is busy
+path_ds = tf.data.Dataset.from_tensor_slices(clean_df['full_path'].values)
+image_ds = path_ds.map(load_and_preprocess, num_parallel_calls=tf.data.AUTOTUNE)
+batch_ds = image_ds.batch(64).prefetch(tf.data.AUTOTUNE)
+
+#Run Inf erence in Batches (The Speed Boost)
+base_model = MobileNetV2(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
+print("Starting High-Speed Extraction...")
+image_vectors = base_model.predict(batch_ds)
+
+print(f"Extraction complete! Shape: {image_vectors.shape}")
+
+# Save immediately so you NEVER have to run this again
+np.save('image_features_final.npy', image_vectors)
+print(f"Image Feature Shape: {image_vectors.shape}")
+
+
+# %%
+
+
+# =============================================================================
+# GRAD-CAM — FIXED
+# =============================================================================
+# The base_model above uses pooling='avg' which collapses spatial dimensions.
+# Grad-CAM needs the spatial (4D) feature maps from the last conv layer.
+# We build a SEPARATE model without pooling purely for Grad-CAM visualisation.
+# base_model (with pooling) is still used for feature extraction as before.
+# =============================================================================
+
+# Build a spatial version of MobileNetV2 — no global pooling, keeps (7, 7, 1280) output
+gradcam_base = MobileNetV2(
+    weights='imagenet',
+    include_top=False,
+    pooling=None,           # No pooling — keeps spatial dimensions for Grad-CAM
+    input_shape=(224, 224, 3)
+)
+gradcam_base.trainable = False
+
+# Find the last convolutional layer (will be the final Conv2D before pooling)
+LAST_CONV_LAYER = None
+for layer in reversed(gradcam_base.layers):
+    if isinstance(layer, tf.keras.layers.Conv2D):
+        LAST_CONV_LAYER = layer.name
+        break
+print(f"Grad-CAM will use layer: '{LAST_CONV_LAYER}'")
+
+# Build the Grad-CAM model: outputs [conv_features, final_predictions]
+grad_model = tf.keras.models.Model(
+    inputs=gradcam_base.input,
+    outputs=[gradcam_base.get_layer(LAST_CONV_LAYER).output, gradcam_base.output]
+)
+
+def make_gradcam_heatmap(img_path):
+    """
+    Generates a Grad-CAM heatmap for a given image path.
+    Uses gradcam_base (no pooling) so spatial dimensions are preserved.
+    Returns a 2D numpy array normalised to [0, 1].
+    """
+    # 1. Load and preprocess image
+    img = tf.keras.preprocessing.image.load_img(img_path, target_size=(224, 224))
+    img_array = tf.keras.preprocessing.image.img_to_array(img)
+    img_array = np.expand_dims(img_array, axis=0)
+    img_array = preprocess_input(img_array)
+
+    # 2. Forward pass — record gradients w.r.t. the last conv layer output
+    with tf.GradientTape() as tape:
+        conv_outputs, predictions = grad_model(img_array)
+        # Use the mean of all output channels as the "score" to differentiate
+        # (MobileNetV2 without a classifier head has no single class logit)
+        loss = tf.reduce_mean(predictions)
+
+    # 3. Compute gradients of the loss w.r.t. conv feature maps
+    grads = tape.gradient(loss, conv_outputs)
+
+    # 4. Global average pool the gradients → importance weight per channel
+    pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+
+    # 5. Weight the feature maps by their importance and collapse to 2D
+    conv_outputs = conv_outputs[0]                          # (H, W, C)
+    heatmap = conv_outputs @ pooled_grads[..., tf.newaxis]  # (H, W, 1)
+    heatmap = tf.squeeze(heatmap)                           # (H, W)
+
+    # 6. ReLU + normalise to [0, 1]
+    heatmap = tf.maximum(heatmap, 0)
+    heatmap = heatmap / (tf.math.reduce_max(heatmap) + 1e-10)
+
+    return heatmap.numpy()
+
+
+# %%
+
+
+#fusion
+#assuming image_vectors and text_vectors have the same number of rows
+# We used hstack (horizontal stack) to fuse them
+fused_features = np.hstack((image_vectors, text_vectors))
+
+print(f"Fused Vector Shape: {fused_features.shape}") 
+
+# Create 5 clusters (Patient Profiles)
+# FIX: KMeans is distance-based, so it is sensitive to feature scale.
+# Image vectors (MobileNetV2 activations) and TF-IDF values live on very
+# different numeric scales — clustering on raw fused_features gives
+# image features far more influence than text features simply due to magnitude.
+# We scale first so both modalities contribute equally to the distance metric.
+kmeans_scaler = StandardScaler()
+fused_for_clustering = kmeans_scaler.fit_transform(fused_features)
+
+kmeans = KMeans(n_clusters=5, random_state=42, n_init=10)
+clusters = kmeans.fit_predict(fused_for_clustering)
+# Add cluster labels back to your dataframe for analysis
+clean_df['patient_cluster'] =clusters
+
+print("Cluster Distribution:")
+print(clean_df['patient_cluster'].value_counts())
+
+
+# %%
+
+
+# =============================================================================
+# ML MODEL — IMPROVED RANDOM FOREST WITH HYPERPARAMETER TUNING
+# =============================================================================
+
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score, GridSearchCV
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import (
+    classification_report, confusion_matrix,
+    accuracy_score, precision_score, recall_score,
+    f1_score, roc_auc_score, roc_curve, auc
+)
+import matplotlib.pyplot as plt
+import seaborn as sns
+import warnings
+warnings.filterwarnings('ignore')
+
+# ------------------------------------------------------------------
+# STEP 1: Label Engineering
+# More robust labelling — checks for explicit normal/abnormal markers
+# instead of just keyword presence
+# ------------------------------------------------------------------
+def label_findings(text):
+    """
+    0 = Normal   (text contains 'normal' but no strong abnormality signal)
+    1 = Abnormal (contains disease keywords OR no normality signal)
+    """
+    text = str(text).lower()
+    normal_signals   = {'normal', 'unremarkable', 'clear', 'no acute'}
+    abnormal_signals = {'opacity', 'effusion', 'infiltrate', 'consolidation',
+                        'pneumonia', 'mass', 'nodule', 'cardiomegaly',
+                        'fracture', 'atelectasis', 'edema', 'pleural'}
+    has_abnormal = any(sig in text for sig in abnormal_signals)
+    has_normal   = any(sig in text for sig in normal_signals)
+    if has_abnormal:
+        return 1
+    elif has_normal:
+        return 0
+    else:
+        return 1  # Default to abnormal if uncertain (safer in a clinical setting)
+
+# FIX: Labels now derived from 'impression_proc' (the radiologist's conclusion),
+# NOT from 'findings_proc' which is the input feature to the model.
+# Using the same column for both labels and features causes label leakage —
+# the model would learn to recognize the exact keywords it was labeled with.
+# 'impression' is the radiologist's summary/conclusion — the right source for ground truth.
+y = clean_df['impression_proc'].apply(label_findings)
+print(f"Label distribution:\n{y.value_counts()}")
+print(f"Class balance — Normal: {(y==0).sum()} | Abnormal: {(y==1).sum()}")
+
+# ------------------------------------------------------------------
+# STEP 2: Feature Scaling
+# Random Forest doesn't strictly need scaling, but it helps when
+# fusing image vectors (MobileNetV2 activations) with TF-IDF values
+# which live on very different numeric scales
+# ------------------------------------------------------------------
+scaler = StandardScaler()
+fused_scaled = scaler.fit_transform(fused_features)
+
+# ------------------------------------------------------------------
+# STEP 3: Stratified Train/Test Split
+# Stratified ensures the class ratio is preserved in both splits
+# ------------------------------------------------------------------
+X_train, X_test, y_train, y_test = train_test_split(
+    fused_scaled, y,
+    test_size=0.2,
+    random_state=42,
+    stratify=y          # Keeps class balance in both splits
+)
+print(f"\nTrain size: {len(X_train)} | Test size: {len(X_test)}")
+
+# ------------------------------------------------------------------
+# STEP 4: Hyperparameter Tuning with GridSearchCV
+# We search over key RF parameters to find the best combination
+# Scoring on F1 (not accuracy) because of potential class imbalance
+# ------------------------------------------------------------------
+print("\nRunning GridSearchCV for hyperparameter tuning...")
+param_grid = {
+    'n_estimators':      [100, 200, 300],
+    'max_depth':         [None, 10, 20],
+    'min_samples_split': [2, 5],
+    'max_features':      ['sqrt', 'log2']
+}
+
+rf_base = RandomForestClassifier(
+    random_state=42,
+    class_weight='balanced',
+    n_jobs=-1            # Use all CPU cores
+)
+
+grid_search = GridSearchCV(
+    rf_base,
+    param_grid,
+    cv=5,                # 5-fold cross-validation inside GridSearch
+    scoring='f1',
+    n_jobs=-1,
+    verbose=1
+)
+grid_search.fit(X_train, y_train)
+
+print(f"\nBest Parameters Found: {grid_search.best_params_}")
+print(f"Best CV F1-Score:       {grid_search.best_score_:.4f}")
+
+# Use the best estimator going forward
+rf_model = grid_search.best_estimator_
+
+# ------------------------------------------------------------------
+# STEP 5: Stratified K-Fold Cross-Validation
+# This gives a more reliable accuracy estimate than a single split
+# ------------------------------------------------------------------
+print("\nRunning 5-Fold Stratified Cross-Validation on best model...")
+skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+cv_accuracy  = cross_val_score(rf_model, fused_scaled, y, cv=skf, scoring='accuracy')
+cv_f1        = cross_val_score(rf_model, fused_scaled, y, cv=skf, scoring='f1')
+cv_roc_auc   = cross_val_score(rf_model, fused_scaled, y, cv=skf, scoring='roc_auc')
+
+print(f"  CV Accuracy  : {cv_accuracy.mean():.4f} ± {cv_accuracy.std():.4f}")
+print(f"  CV F1-Score  : {cv_f1.mean():.4f} ± {cv_f1.std():.4f}")
+print(f"  CV ROC-AUC   : {cv_roc_auc.mean():.4f} ± {cv_roc_auc.std():.4f}")
+
+# ------------------------------------------------------------------
+# STEP 6: Final Predictions
+# ------------------------------------------------------------------
+y_pred       = rf_model.predict(X_test)
+y_pred_proba = rf_model.predict_proba(X_test)[:, 1]
+
+# ------------------------------------------------------------------
+# STEP 7: Save model and scaler immediately after training
+# Saved here so nothing can overwrite these variables before saving
+# ------------------------------------------------------------------
+import joblib
+
+joblib.dump(rf_model, 'insightx_rf_model.pkl')
+joblib.dump(scaler,   'insightx_scaler.pkl')
+print("Model saved  → insightx_rf_model.pkl")
+print("Scaler saved → insightx_scaler.pkl")
+print("\nTo reload later:")
+print("  rf_model = joblib.load('insightx_rf_model.pkl')")
+print("  scaler   = joblib.load('insightx_scaler.pkl')")
+
+
+# %%
+
+
+def test_new_patient_pro(index_num):
+    # 1. Retrieve Data
+    test_image_path = clean_df['full_path'].iloc[index_num]
+    test_report     = clean_df['findings'].iloc[index_num]
+    cluster_id      = clean_df['patient_cluster'].iloc[index_num]
+
+    # 2. Get Risk Probability
+    # IMPORTANT: use fused_scaled (StandardScaler applied) — model was trained on scaled data
+    feat       = fused_scaled[index_num].reshape(1, -1)
+    prob_score = rf_model.predict_proba(feat)[0][1] * 100
+    pred_label = rf_model.predict(feat)[0]
+
+    # 3. Cluster Names (from Word Cloud analysis)
+    cluster_names = {
+        0: "Unremarkable / Baseline Findings",
+        1: "Cardiac & Mediastinal Conditions",
+        2: "Pulmonary Opacities / Effusions",
+        3: "Degenerative / Osseous Findings",
+        4: "Post-Surgical / Hardware"
+    }
+    assigned_name = cluster_names.get(cluster_id, "Mixed Clinical Findings")
+
+    # 4. Generate Grad-CAM heatmap
+    # Fixed: make_gradcam_heatmap now takes only img_path (uses gradcam_base internally)
+    heatmap = make_gradcam_heatmap(test_image_path)
+
+    # 5. Visualisation
+    original_img = tf.keras.preprocessing.image.load_img(test_image_path)
+    w, h = original_img.size
+
+    fig, ax = plt.subplots(1, 2, figsize=(16, 6))
+
+    ax[0].imshow(original_img)
+    ax[0].set_title(f"Original X-Ray (Index {index_num})", fontsize=12)
+    ax[0].axis('off')
+
+    ax[1].imshow(original_img)
+    ax[1].imshow(heatmap, cmap='jet', alpha=0.45, extent=(0, w, h, 0))
+    ax[1].set_title("AI Attention Area (Grad-CAM)", fontsize=12)
+    ax[1].axis('off')
+
+    risk_color = '#d32f2f' if prob_score > 50 else '#388e3c'
+    fig.suptitle(
+        f"{'⚠ ABNORMAL' if pred_label == 1 else '✓ NORMAL'}  |  Risk: {prob_score:.1f}%",
+        fontsize=14, fontweight='bold', color=risk_color
+    )
+    plt.tight_layout()
+    plt.show()
+
+    # 6. Clinical Printout
+    print("=" * 55)
+    print("  InsightX — AI DIAGNOSTIC REPORT")
+    print("=" * 55)
+    print(f"  Patient Index    : {index_num}")
+    print(f"  Cluster ID       : {cluster_id} — {assigned_name}")
+    print(f"  AI Prediction    : {'Abnormal' if pred_label == 1 else 'Normal'}")
+    print(f"  Abnormality Risk : {prob_score:.2f}%")
+    print(f"  Findings (trunc) : {test_report[:250]}...")
+    print("=" * 55)
+
+    if prob_score > 50:
+        print("  ACTION: Flagged for high-priority radiologist review.")
+    else:
+        print("  ACTION: No urgent findings detected.")
+
+# Execute for a sample patient
+test_new_patient_pro(4580)
+
+
+# %%
+
+
+# elbow plot
+# Using fused_for_clustering (scaled) — consistent with the KMeans model above
+distortions = []
+K_range = range(1, 10)
+for k in K_range:
+    kmeds = KMeans(n_clusters=k, random_state=42,n_init=10).fit(fused_for_clustering)
+    distortions.append(kmeds.inertia_)
+
+plt.figure(figsize=(8, 4))
+plt.plot(K_range,distortions, 'bo-')
+plt.title('Elbow Method for Optimal Clusters')
+plt.xlabel('Number of Clusters (k)')
+plt.ylabel('Inertia (Error)')
+plt.show()
+
+
+# %%
+
+
+#WORD CLOUD (Cluster Interpretation)
+print("📊 Generating Word Clouds...")
+def show_cluster_cloud(cluster_num):
+    text = " ".join(clean_df[clean_df['patient_cluster'] == cluster_num]['findings_proc'])
+    wordcloud = WordCloud(background_color='black',width=800,height=400).generate(text)
+    plt.figure(figsize=(10,5))
+    plt.imshow(wordcloud,interpolation='bilinear')
+    plt.title(f'Word Cloud for Cluster {cluster_num}')
+    plt.axis('off')
+    plt.show()
+
+show_cluster_cloud(0) 
+
+
+# %%
+
+
+#CLUSTER VISUALIZATION (t-SNE)
+# Using the already-fitted scaler from the ML section (fused_scaled is already computed)
+# We do NOT refit the scaler here — that would overwrite the one used to train the model
+print(" Generating t-SNE Plot (This may take a minute)...")
+
+# 2. Use t-SNE  (t-SNE is better at separating overlapping groups)
+# Perplexity 30-50 is usually perfect for this dataset size
+tsne = TSNE(n_components=2, perplexity=30, random_state=42, init='pca', learning_rate='auto')
+tsne_results = tsne.fit_transform(fused_scaled)
+
+# 3. Plot the cleaner clusters
+plt.figure(figsize=(10, 7))
+scatter = plt.scatter(tsne_results[:, 0], tsne_results[:, 1], 
+            c=clean_df['patient_cluster'], 
+            cmap='Spectral', # Brighter colors for better separation
+            alpha=0.6, 
+            edgecolors='w', 
+            s=40)
+
+plt.title('Advanced Patient Profile Visualization (t-SNE)', fontsize=15)
+plt.colorbar(scatter, label='Cluster ID')
+plt.grid(True, linestyle='--', alpha=0.5)
+plt.show()
+
+
+# %%
+
+
+# =============================================================================
+# MODEL COMPARISON — Random Forest vs Logistic Regression baseline
+# Showing you understand model selection is a strong interviewer signal
+# =============================================================================
+from sklearn.linear_model import LogisticRegression
+
+print("Training Logistic Regression baseline...")
+lr_model = LogisticRegression(
+    max_iter=1000,
+    class_weight='balanced',
+    random_state=42,
+    n_jobs=-1
+)
+lr_model.fit(X_train, y_train)
+
+lr_pred       = lr_model.predict(X_test)
+lr_pred_proba = lr_model.predict_proba(X_test)[:, 1]
+
+# Collect metrics for both models
+model_comparison = pd.DataFrame({
+    "Model": ["Logistic Regression (Baseline)", "Random Forest (InsightX)"],
+    "Accuracy":  [
+        f"{accuracy_score(y_test, lr_pred)*100:.2f}%",
+        f"{accuracy_score(y_test, y_pred)*100:.2f}%"
+    ],
+    "Precision": [
+        f"{precision_score(y_test, lr_pred)*100:.2f}%",
+        f"{precision_score(y_test, y_pred)*100:.2f}%"
+    ],
+    "Recall":    [
+        f"{recall_score(y_test, lr_pred)*100:.2f}%",
+        f"{recall_score(y_test, y_pred)*100:.2f}%"
+    ],
+    "F1-Score":  [
+        f"{f1_score(y_test, lr_pred)*100:.2f}%",
+        f"{f1_score(y_test, y_pred)*100:.2f}%"
+    ],
+    "ROC-AUC":   [
+        f"{roc_auc_score(y_test, lr_pred_proba):.4f}",
+        f"{roc_auc_score(y_test, y_pred_proba):.4f}"
+    ],
+})
+print("\n--- Model Comparison ---")
+print(model_comparison.to_string(index=False))
+
+
+# %%
+
+
+# =============================================================================
+# EVALUATION METRICS SUITE — Full Dashboard
+# =============================================================================
+from sklearn.metrics import precision_recall_curve, average_precision_score
+
+fig, axes = plt.subplots(2, 3, figsize=(22, 13))
+fig.suptitle('InsightX — Multimodal Chest X-Ray Model Evaluation',
+             fontsize=16, fontweight='bold', y=1.01)
+
+# ------------------------------------------------------------------
+# PLOT 1: Confusion Matrix
+# ------------------------------------------------------------------
+cm = confusion_matrix(y_test, y_pred)
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=axes[0][0],
+            xticklabels=['Normal', 'Abnormal'],
+            yticklabels=['Normal', 'Abnormal'],
+            annot_kws={"size": 14})
+axes[0][0].set_title('Confusion Matrix', fontsize=13, fontweight='bold')
+axes[0][0].set_ylabel('Actual Label')
+axes[0][0].set_xlabel('Predicted Label')
+
+# ------------------------------------------------------------------
+# PLOT 2: ROC Curve — RF vs LR
+# ------------------------------------------------------------------
+fpr_rf, tpr_rf, _ = roc_curve(y_test, y_pred_proba)
+fpr_lr, tpr_lr, _ = roc_curve(y_test, lr_pred_proba)
+auc_rf = auc(fpr_rf, tpr_rf)
+auc_lr = auc(fpr_lr, tpr_lr)
+
+axes[0][1].plot(fpr_rf, tpr_rf, color='darkorange', lw=2,
+                label=f'Random Forest  (AUC = {auc_rf:.3f})')
+axes[0][1].plot(fpr_lr, tpr_lr, color='steelblue',  lw=2, linestyle='--',
+                label=f'Logistic Reg.  (AUC = {auc_lr:.3f})')
+axes[0][1].plot([0, 1], [0, 1], color='grey', lw=1, linestyle=':',
+                label='Random Classifier')
+axes[0][1].fill_between(fpr_rf, tpr_rf, alpha=0.08, color='darkorange')
+axes[0][1].set_xlim([0, 1]); axes[0][1].set_ylim([0, 1.05])
+axes[0][1].set_xlabel('False Positive Rate')
+axes[0][1].set_ylabel('True Positive Rate')
+axes[0][1].set_title('ROC Curve Comparison', fontsize=13, fontweight='bold')
+axes[0][1].legend(loc='lower right', fontsize=9)
+axes[0][1].grid(True, linestyle='--', alpha=0.4)
+
+# ------------------------------------------------------------------
+# PLOT 3: Precision-Recall Curve — more informative for imbalanced data
+# ------------------------------------------------------------------
+prec_rf, rec_rf, _ = precision_recall_curve(y_test, y_pred_proba)
+prec_lr, rec_lr, _ = precision_recall_curve(y_test, lr_pred_proba)
+ap_rf = average_precision_score(y_test, y_pred_proba)
+ap_lr = average_precision_score(y_test, lr_pred_proba)
+
+axes[0][2].plot(rec_rf, prec_rf, color='darkorange', lw=2,
+                label=f'Random Forest  (AP = {ap_rf:.3f})')
+axes[0][2].plot(rec_lr, prec_lr, color='steelblue',  lw=2, linestyle='--',
+                label=f'Logistic Reg.  (AP = {ap_lr:.3f})')
+axes[0][2].axhline(y=y_test.mean(), color='grey', lw=1, linestyle=':',
+                   label=f'Baseline (prevalence = {y_test.mean():.2f})')
+axes[0][2].set_xlabel('Recall')
+axes[0][2].set_ylabel('Precision')
+axes[0][2].set_title('Precision-Recall Curve', fontsize=13, fontweight='bold')
+axes[0][2].legend(loc='upper right', fontsize=9)
+axes[0][2].grid(True, linestyle='--', alpha=0.4)
+axes[0][2].set_xlim([0, 1]); axes[0][2].set_ylim([0, 1.05])
+
+# ------------------------------------------------------------------
+# PLOT 4: Feature Importance by Modality
+# ------------------------------------------------------------------
+importances     = rf_model.feature_importances_
+n_image_feats   = image_vectors.shape[1]
+image_imp       = importances[:n_image_feats].sum()
+text_imp        = importances[n_image_feats:].sum()
+
+bars = axes[1][0].bar(
+    ['Image\n(MobileNetV2)', 'Text\n(TF-IDF)'],
+    [image_imp, text_imp],
+    color=['#2196F3', '#4CAF50'], edgecolor='white', linewidth=1.5, width=0.5
+)
+axes[1][0].set_title('Feature Importance by Modality', fontsize=13, fontweight='bold')
+axes[1][0].set_ylabel('Cumulative Feature Importance')
+axes[1][0].set_ylim(0, max(image_imp, text_imp) * 1.25)
+for bar, val in zip(bars, [image_imp, text_imp]):
+    axes[1][0].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.005,
+                    f'{val:.3f}', ha='center', va='bottom', fontweight='bold', fontsize=12)
+axes[1][0].grid(True, linestyle='--', alpha=0.4, axis='y')
+
+# ------------------------------------------------------------------
+# PLOT 5: Cross-Validation Score Distribution (box plot)
+# ------------------------------------------------------------------
+cv_data   = pd.DataFrame({
+    'Accuracy': cv_accuracy,
+    'F1-Score': cv_f1,
+    'ROC-AUC':  cv_roc_auc
+})
+cv_melted = cv_data.melt(var_name='Metric', value_name='Score')
+sns.boxplot(data=cv_melted, x='Metric', y='Score', palette='Set2', ax=axes[1][1],
+            width=0.45)
+axes[1][1].set_title('5-Fold CV Score Distribution', fontsize=13, fontweight='bold')
+axes[1][1].set_ylabel('Score')
+axes[1][1].set_ylim(0.5, 1.05)
+axes[1][1].grid(True, linestyle='--', alpha=0.4, axis='y')
+for i, (metric, vals) in enumerate(cv_data.items()):
+    axes[1][1].text(i, vals.mean() - 0.03, f'μ={vals.mean():.3f}',
+                    ha='center', fontsize=9, color='black')
+
+# ------------------------------------------------------------------
+# PLOT 6: Model Comparison Bar Chart
+# ------------------------------------------------------------------
+metrics_to_plot = ['Accuracy', 'Precision', 'Recall', 'F1-Score', 'ROC-AUC']
+rf_scores = [
+    accuracy_score(y_test, y_pred),
+    precision_score(y_test, y_pred),
+    recall_score(y_test, y_pred),
+    f1_score(y_test, y_pred),
+    roc_auc_score(y_test, y_pred_proba)
+]
+lr_scores = [
+    accuracy_score(y_test, lr_pred),
+    precision_score(y_test, lr_pred),
+    recall_score(y_test, lr_pred),
+    f1_score(y_test, lr_pred),
+    roc_auc_score(y_test, lr_pred_proba)
+]
+
+x      = np.arange(len(metrics_to_plot))
+width  = 0.35
+bars_lr = axes[1][2].bar(x - width/2, lr_scores, width, label='Logistic Regression',
+                          color='steelblue', alpha=0.8, edgecolor='white')
+bars_rf = axes[1][2].bar(x + width/2, rf_scores, width, label='Random Forest (InsightX)',
+                          color='darkorange', alpha=0.9, edgecolor='white')
+axes[1][2].set_xticks(x)
+axes[1][2].set_xticklabels(metrics_to_plot, fontsize=9)
+axes[1][2].set_ylim(0, 1.15)
+axes[1][2].set_title('Model Comparison', fontsize=13, fontweight='bold')
+axes[1][2].set_ylabel('Score')
+axes[1][2].legend(fontsize=9)
+axes[1][2].grid(True, linestyle='--', alpha=0.4, axis='y')
+for bar in list(bars_lr) + list(bars_rf):
+    axes[1][2].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
+                    f'{bar.get_height():.2f}', ha='center', va='bottom', fontsize=7.5)
+
+plt.tight_layout()
+plt.savefig('insightx_evaluation.png', dpi=150, bbox_inches='tight')
+plt.show()
+print("Full evaluation dashboard saved → insightx_evaluation.png")
+
+# Final summary print
+print("\n" + "=" * 60)
+print("  InsightX — FINAL MODEL PERFORMANCE SUMMARY")
+print("=" * 60)
+report = classification_report(y_test, y_pred, target_names=['Normal', 'Abnormal'])
+print(report)
+print(f"  ROC-AUC          : {roc_auc_score(y_test, y_pred_proba):.4f}")
+print(f"  Avg Precision    : {average_precision_score(y_test, y_pred_proba):.4f}")
+print(f"  CV Accuracy      : {cv_accuracy.mean()*100:.2f}% ± {cv_accuracy.std()*100:.2f}%")
+print(f"  CV F1            : {cv_f1.mean()*100:.2f}% ± {cv_f1.std()*100:.2f}%")
+print(f"  CV ROC-AUC       : {cv_roc_auc.mean():.4f} ± {cv_roc_auc.std():.4f}")
+print(f"  Best RF Params   : {grid_search.best_params_}")
+print("=" * 60)
+
+
+
+
+
+# %%
