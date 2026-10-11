@@ -1,0 +1,13 @@
+{
+  "model_name": "InsightX-MobileNetV2",
+  "version": "1.0.0",
+  "disclaimer": "Research Demo Only - This tool is not a certified medical device. Results are AI predictions for research purposes only and must not be used to guide clinical decisions. Always consult a qualified radiologist.",
+  "modalities": {
+    "image": "MobileNetV2 fine-tuned (224x224x3)",
+    "classes": [
+      "Normal (0)",
+      "Abnormal (1)"
+    ]
+  },
+  "metrics": {}
+}

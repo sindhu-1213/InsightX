@@ -1,0 +1,20 @@
+{
+  "disclaimer": "Research Demo Only - This tool is not a certified medical device. Results are AI predictions for research purposes only and must not be used to guide clinical decisions. Always consult a qualified radiologist.",
+  "evaluation_split": "test",
+  "sample_count": 1095,
+  "accuracy": "PENDING: filled in after real training",
+  "f1_score": "PENDING: filled in after real training",
+  "roc_auc": "PENDING: filled in after real training",
+  "sensitivity_at_90_specificity": "PENDING: filled in after real training",
+  "threshold_at_90_specificity": "PENDING: filled in after real training",
+  "brier_score_uncalibrated": "PENDING: filled in after real training",
+  "brier_score_calibrated": "PENDING: filled in after real training",
+  "confusion_matrix": [
+    ["PENDING: filled in after real training", "PENDING: filled in after real training"],
+    ["PENDING: filled in after real training", "PENDING: filled in after real training"]
+  ],
+  "confusion_matrix_labels": [
+    "Normal (0)",
+    "Abnormal (1)"
+  ]
+}

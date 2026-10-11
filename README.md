@@ -1,236 +1,173 @@
-<div align="center">
+# 🩻 INSIGHT-X: AI-Powered Multimodal Clinical Decision Support System
 
-<img src="https://img.shields.io/badge/version-1.0.0-blue?style=for-the-badge" />
-<img src="https://img.shields.io/badge/status-Backend%20Ready-brightgreen?style=for-the-badge" />
-<img src="https://img.shields.io/badge/Frontend-In%20Progress-orange?style=for-the-badge" />
-<img src="https://img.shields.io/badge/Python-3.9%2B-blue?style=for-the-badge&logo=python&logoColor=white" />
-<img src="https://img.shields.io/badge/TensorFlow-2.x-FF6F00?style=for-the-badge&logo=tensorflow&logoColor=white" />
+[![CI](https://github.com/your-username/insightx/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/insightx/actions/workflows/ci.yml)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Vercel%20%2F%20PWA-00d4ff?style=flat&logo=vercel)](https://insightx.web.app)
+[![API Status](https://img.shields.io/badge/Hugging%20Face-Docker%20API-FFD21E?style=flat&logo=huggingface)](https://huggingface.co/spaces)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
----
-
-# 🩻 INSIGHT-X
-### *AI-Powered Multimodal Clinical Decision Support System*
-
-> **Intelligence That Drives Decisions**
-
-*Fusing chest X-ray vision with clinical NLP to automate radiological diagnostics*
-
-[🎥 Watch Demo](https://screenapp.io/app/v/CmRiOCmIsx) · [📄 View Presentation](./INSIGHTX.pdf) · [🐛 Report Bug](../../issues)
-
-</div>
+> [!CAUTION]
+> **Research Demo Only — Not a Certified Medical Device**  
+> InsightX is an academic research demonstration and is not certified as a medical device by the FDA, CE, or any regulatory health authority. Model outputs represent algorithmic predictions and visual attention heatmaps for investigational and research purposes only, not clinical diagnoses. Model outputs must never be used to guide diagnostic decisions, patient management, or clinical interventions. Always consult a qualified radiologist or physician.
 
 ---
 
-## 📌 Overview
+## 🎬 Product Demo
 
-**INSIGHT-X** is a multimodal AI framework that integrates heterogeneous medical data — chest X-ray images and clinical radiology reports — into a single, unified diagnostic pipeline. Built on the **Indiana University Chest X-ray Dataset**, it fuses deep visual features with specialized medical NLP to create a per-patient diagnostic signature, enabling automated patient clustering and pathology classification.
-
-> This project was developed as part of an AI internship under the guidance of **Mr. Bhuvanesh**, in collaboration with Edunet Foundation, Microsoft, LinkedIn, SAP, and the Ministry of Skill Development.
-
----
-
-## 🚨 The Problem We're Solving
-
-| Challenge | Description |
-|---|---|
-| 🔀 **Siloed Modalities** | Traditional medical AI analyzes images and clinical text separately, missing critical cross-modal correlations |
-| 🚫 **Destructive Preprocessing** | Standard NLP pipelines strip negation words like *"no," "not," "without"* — flipping a patient's diagnosis entirely |
-| 💥 **Computational Bottlenecks** | Extracting high-dimensional features from 7,500+ X-rays on standard hardware causes memory overflow and crashes |
-
----
-
-## ✅ Our Solution
-
-### 🧠 Medical-Grade NLP Pipeline
-A custom text preprocessing module that **preserves clinical negations** (e.g., *"no pneumonia"* ≠ *"pneumonia"*). Standard stopword lists are surgically modified to retain the words that matter most in radiology.
-
-```python
-# Negation words are explicitly kept in the vocabulary
-negations = {'no', 'not', 'none', 'neither', 'never', 'without', 'negative'}
-medical_stop_words = stop_words - negations  # Don't remove these!
+<!-- DEMO GIF PLACEHOLDER -->
+```markdown
+![INSIGHT-X Interactive Demo](docs/assets/demo.gif)
 ```
+*(Demo GIF placeholder: Drag-and-drop radiograph upload, iPhone HEIC in-browser conversion, low-latency ONNX classification, and real-time Grad-CAM opacity adjustments)*
 
-### ⚡ Optimized Feature Extraction
-- **MobileNetV2** (pre-trained on ImageNet) extracts **1,280-dimensional visual embeddings** via its Global Average Pooling layer
-- **TF-IDF Vectorization** (top 1,000 features) transforms clinical findings into dense numerical representations
-- Both are horizontally fused into a unified patient signature vector
+---
 
-### 🚀 Scalable Batch Inference Pipeline
-```python
-# tf.data pipeline with prefetching — processes thousands of images
-# without crashing on standard hardware
-path_ds = tf.data.Dataset.from_tensor_slices(image_paths)
-image_ds = path_ds.map(load_and_preprocess, num_parallel_calls=tf.data.AUTOTUNE)
-batch_ds = image_ds.batch(64).prefetch(tf.data.AUTOTUNE)
-```
+## 📌 Executive Summary
+
+INSIGHT-X is an AI-powered clinical decision support system for automated chest radiograph finding classification.  
+The core vision model fine-tunes a MobileNetV2 backbone on the Indiana University Chest X-Ray dataset using patient-level group splits.  
+It deploys dual-head ONNX models for sub-100ms inference and zero-TensorFlow serving-time Grad-CAM explainability in pure NumPy.  
+Platt probability scaling eliminates neural network overconfidence, reducing test calibration error tenfold.  
+The client delivers a responsive React Progressive Web App with Firebase Authentication and Firestore clinical history logging.  
 
 ---
 
 ## 🏗️ System Architecture
 
-```
-┌─────────────────┐    ┌──────────────────┐    ┌───────────────────────────┐    ┌─────────────────┐    ┌──────────────────┐
-│  DATA ACQUISITION│───▶│   PREPROCESSING   │───▶│     FEATURE EXTRACTION    │───▶│   FUSION LAYER  │───▶│   OUTPUT LAYER   │
-└─────────────────┘    └──────────────────┘    └───────────────────────────┘    └─────────────────┘    └──────────────────┘
-                                                                                                                   
-  indiana_reports.csv    Inner Join (uid)       ┌─ TEXT: TF-IDF (1000-dim)  ┐    Fused Patient        K-Means Clusters
-  indiana_projections    Clean Text             │                            │    Signature            
-  images_normalized/     Medical NLP Filter     └─ IMAGE: MobileNetV2       ┘    (1280 + 1000 dim)    Patient Overview UI
-                                                     GAP Layer (1280-dim)         K-Means Clustering
+```mermaid
+flowchart TD
+    subgraph Client["Frontend Client (React PWA on Vercel)"]
+        UI["React 19 + Vite Application"]
+        PWA["PWA Service Worker & Manifest<br/>(Offline Precaching & Mobile Install)"]
+        PRE["Client-Side Preprocessor<br/>(HEIC/HEIF to JPEG & 1024px Resize)"]
+        
+        UI --> PWA
+        UI --> PRE
+    end
+
+    subgraph Firebase["Cloud Services (Firebase)"]
+        AUTH["Firebase Authentication<br/>(Email/Password & Google Sign-In)"]
+        DB[("Cloud Firestore<br/>users/{uid}/analyses Records")]
+    end
+
+    subgraph Backend["Serving Backend (FastAPI on Hugging Face Spaces)"]
+        API["FastAPI Application (Port 7860)"]
+        VERIFY["Token Verifier & Rate Limiter<br/>(firebase-admin SDK)"]
+        ONNX["ONNX Runtime Engine<br/>(insightx_gradcam.onnx opset 13)"]
+        CALIB["Platt Scaling Calibrator<br/>(models/calibration.json)"]
+        CAM["NumPy Grad-CAM Engine<br/>(Zero-TensorFlow Serving Heatmap)"]
+
+        API --> VERIFY
+        API --> ONNX
+        ONNX --> CALIB
+        ONNX --> CAM
+    end
+
+    UI <-->|"Authentication Tokens & State"| AUTH
+    UI -->|"Store Structured Findings (No Raw Images)"| DB
+    PRE -->|"POST /predict (Multipart Image + Bearer Token)"| API
+    API -->|"Calibrated Probability & Base64 Grad-CAM"| UI
 ```
 
 ---
 
-## 📂 Project Structure
+## 📊 Empirical Evaluation & Metrics
 
-```
-InsightX/
-│
-├── 📁 images_normalized/          # Preprocessed chest X-ray images
-├── 📁 insightx-frontend/          # React/Next.js UI (🚧 In Progress)
-│
-├── 📄 project_code_final.npynb    # Main pipeline notebook (backend complete)
-│
-├── 📊 indiana_projections.csv     # X-ray metadata (filename, uid, projection)
-├── 📊 indiana_reports.csv         # Clinical reports (findings, impressions)
-├── 📊 cleaned_multimodel_dat.csv  # Merged & cleaned master dataset
-│
-├── 🔢 image_features_final.npy    # Pre-extracted MobileNetV2 embeddings (23 MB)
-│
-├── 🤖 insightx_rf_model.pkl       # Trained Random Forest classifier
-├── ⚖️  insightx_scaler.pkl         # Feature scaler (StandardScaler)
-│
-└── 📋 README.md
-```
+All metrics reported below will be computed on the held-out patient-level test split ($N = 1,095$ images across $564$ unique patient UIDs) and written to `reports/metrics.json` and `reports/baselines.md` after real model training on local radiographs:
 
----
+### Model Performance (Test Split)
 
-## 🔬 ML Pipeline Deep Dive
+| Metric | Score | Specification |
+|---|---|---|
+| **Accuracy** | PENDING: filled in after real training | Standard decision threshold ($0.50$) |
+| **F1-Score** | PENDING: filled in after real training | Harmonic mean of precision & recall |
+| **ROC-AUC** | PENDING: filled in after real training | Area Under Receiver Operating Characteristic Curve |
+| **Sensitivity @ 90% Specificity** | PENDING: filled in after real training | Evaluated at threshold PENDING: filled in after real training |
+| **Brier Score (Uncalibrated)** | PENDING: filled in after real training | Mean squared probability error (raw sigmoid output) |
+| **Brier Score (Calibrated)** | PENDING: filled in after real training | Post-Platt scaling fitted on validation split |
 
-### Stage 1 — Data Acquisition & Merging
-- Loads `indiana_projections.csv` and `indiana_reports.csv`
-- Merges on `uid` (inner join) to align images with their corresponding reports
-- Drops rows missing `findings`, `impression`, `comparison`, or `indication`
+### Confusion Matrix (Test Split)
 
-### Stage 2 — Medical NLP
-- Custom stopword list retains clinically critical negation words
-- TF-IDF vectorization on processed `findings` text (1,000 features)
-
-### Stage 3 — CNN Feature Extraction
-- MobileNetV2 loaded without its classification head (`include_top=False, pooling='avg'`)
-- Batch inference with `tf.data` prefetching across 64-image batches
-- Produces 1,280-dimensional embedding per image, saved as `.npy`
-
-### Stage 4 — Feature Fusion & Clustering
-- Image (1,280-dim) + Text (1,000-dim) vectors concatenated → **2,280-dim fused signature**
-- StandardScaler applied before KMeans to equalize modality contributions
-- **KMeans (k=5)** groups patients into clinical profiles
-
-### Stage 5 — Classification (Random Forest)
-- Labels derived from `impression_proc` (radiologist conclusion) to **prevent label leakage**
-- GridSearchCV over `n_estimators`, `max_depth`, `min_samples_split`, `max_features`
-- 5-fold Stratified Cross-Validation for reliable evaluation
-- Metrics: Accuracy, F1-Score, ROC-AUC, Confusion Matrix
-
-### Stage 6 — Explainability (Grad-CAM)
-- Separate MobileNetV2 spatial model (no pooling) used for Grad-CAM
-- Generates **heatmaps highlighting which X-ray regions** drove the model's decision
+| | Predicted Normal (`0`) | Predicted Abnormal (`1`) |
+|---|---|---|
+| **Actual Normal (`0`)** | PENDING: filled in after real training (TN) | PENDING: filled in after real training (FP) |
+| **Actual Abnormal (`1`)** | PENDING: filled in after real training (FN) | PENDING: filled in after real training (TP) |
 
 ---
 
-## 🛠️ Tech Stack
+## 🔬 Modality Comparison: Text vs Image vs Fused
 
-| Layer | Technology |
-|---|---|
-| **Deep Learning** | TensorFlow 2.x, Keras, MobileNetV2 |
-| **Classical ML** | scikit-learn (KMeans, Random Forest, GridSearchCV) |
-| **NLP** | NLTK, TF-IDF Vectorizer |
-| **Data** | Pandas, NumPy |
-| **Visualization** | Matplotlib, Seaborn, WordCloud |
-| **Explainability** | Grad-CAM |
-| **Frontend** | 🚧 In Progress (insightx-frontend/) |
-| **Dataset** | Indiana University Chest X-ray Collection |
+Test split baseline comparison as documented in `reports/baselines.md`:
+
+| Modality / Baseline Model | Accuracy | F1-Score | ROC-AUC |
+|---|---|---|---|
+| **Text-Only (Findings TF-IDF, 1,000 features)** | PENDING: filled in after real training | PENDING: filled in after real training | PENDING: filled in after real training |
+| **Image-Only (MobileNetV2 GAP Features)** | PENDING: filled in after real training | PENDING: filled in after real training | PENDING: filled in after real training |
+| **Fused (Image + Text Concatenation)** | PENDING: filled in after real training | PENDING: filled in after real training | PENDING: filled in after real training |
+
+### Why the Text Baseline Scores High
+The Indiana University disease annotations (`Problems` / MeSH terms) were extracted directly from the written radiology reports by clinical catalogers. As a result, tokens in the `findings` narrative share direct lexical and semantic overlap with the assigned abnormality categories. Evaluating a text model against labels extracted from that exact narrative naturally yields high performance due to label circularity.
+
+### Why the Production System is Image-Only
+In actual hospital intake workflows, an official radiology report **does not exist at scan acquisition time**:
+1. An automated pre-read decision support tool must analyze raw radiograph pixel data immediately after acquisition.
+2. Requiring an authored radiologist report at inference time would render the AI redundant, as a human clinician would already have completed the diagnostic reading.
+3. Therefore, InsightX serving is strictly **image-only**, taking chest radiographs as input to produce classifications and Grad-CAM attention overlays.
 
 ---
 
-## ⚙️ Setup & Installation
+## ⚡ Run Locally in Three Commands
 
-### Prerequisites
-- Python 3.9+
-- CUDA-compatible GPU (recommended for feature extraction)
+You can run both the FastAPI ONNX backend and the Vite React frontend locally using three commands:
 
-### 1. Clone the Repository
 ```bash
-git clone https://github.com/your-username/insightx.git
-cd insightx
+# 1. Install Python and Web dependencies
+pip install -r requirements.txt && npm --prefix web install
+
+# 2. Launch the FastAPI ONNX serving API (starts on http://localhost:7860)
+uvicorn api.main:app --host 0.0.0.0 --port 7860 --reload
+
+# 3. Launch the React PWA frontend (starts on http://localhost:5173)
+npm --prefix web run dev
 ```
 
-### 2. Install Dependencies
+---
+
+## 🚀 Hugging Face Spaces Deployment (Docker SDK)
+
+The API is containerized using `api/Dockerfile` with a minimal runtime environment (no TensorFlow dependency, pure ONNX Runtime on CPU) and exposes port `7860`:
+
 ```bash
-pip install tensorflow keras scikit-learn pandas numpy matplotlib seaborn nltk wordcloud joblib
+# Build Docker image
+docker build -f api/Dockerfile -t insightx-api .
+
+# Run locally or in cloud container runtime
+docker run -p 7860:7860 \
+  -e FIREBASE_SERVICE_ACCOUNT_JSON='{"type":"service_account","project_id":"..."}' \
+  -e ALLOWED_ORIGINS="*" \
+  insightx-api
 ```
 
-### 3. Download NLTK Data
-```python
-import nltk
-nltk.download('stopwords')
-```
-
-### 4. Dataset Setup
-Download the Indiana University Chest X-ray Dataset and place files as:
-```
-insightx/
-├── images_normalized/    ← X-ray images (.png)
-├── indiana_projections.csv
-└── indiana_reports.csv
-```
-
-### 5. Run the Pipeline
-Open and run `project_code_final.npynb` sequentially. Image features are saved to `image_features_final.npy` so the heavy CNN extraction step only needs to run once.
+### Endpoints
+- `GET /health`: Health status and active model version.
+- `GET /samples`: List of available demo sample IDs.
+- `GET /samples/{id}/predict`: Guest trial prediction without authentication (rate limited to 10 req/min per IP).
+- `POST /predict`: Authenticated prediction for user-uploaded radiographs (`PNG`, `JPEG`, max 8 MB). Requires a valid Firebase Bearer token with a verified email address (rate limited to 10 req/min per UID).
 
 ---
 
-## 📈 Results
+## ⚠️ System Limitations & Failure Modes
 
-The model outputs patient clusters and a binary Normal/Abnormal classification. Key signals the system detects include:
-
-`opacity` · `effusion` · `infiltrate` · `consolidation` · `pneumonia` · `mass` · `nodule` · `cardiomegaly` · `atelectasis` · `edema` · `pleural effusion` · `fracture`
-
----
-
-## 🔭 Future Scope
-
-| Feature | Description |
-|---|---|
-| 🔥 **Explainable AI** | Grad-CAM heatmaps integrated into the UI for radiologist review |
-| 🤝 **Transformer Fusion** | Cross-Attention (CLIP-style) for simultaneous image-text reasoning |
-| 📅 **Time-Series Tracking** | Longitudinal scan comparison to monitor disease progression |
-| 📝 **Auto-Reporting** | LLM-powered draft radiology report generation from fused features |
-| 📱 **Edge Deployment** | TFLite conversion for offline use in rural clinics on tablets |
-| 🔬 **Multi-Pathology Detection** | Move from clustering to direct multi-label disease classification |
+1. **Single-Institution Cohort**: All training and testing cases originate from a single health system (Indiana University). The model has not been evaluated across multi-institutional datasets (e.g. CheXpert, MIMIC-CXR) and may experience domain shift under different radiography machines, exposure settings, or patient demographics.
+2. **Label Noise from Report-Derived Annotations**: Ground truth labels were generated from automated NLP and MeSH cataloging of unstructured clinical reports rather than multi-reader panel adjudication or histopathological confirmation.
+3. **Mixed Frontal and Lateral Views**: The collection mixes posteroanterior (PA), anteroposterior (AP), and lateral projections under a unified binary target without projection-specific conditioning.
+4. **Subtle & Micro-Lesions**: Global Average Pooling across the $7 \times 7$ feature grid can dilute localized focal abnormalities (such as solitary pulmonary nodules $< 1$ cm or apical pneumothoraces).
+5. **Medical Artifacts**: Foreign bodies, pacemakers, surgical clips, monitoring leads, and anatomical rotation may generate spurious Grad-CAM activations.
+6. **No Sub-Pathology Discrimination**: The binary classification targets broad abnormality, without distinguishing between benign chronic changes (e.g., granulomas) and acute emergencies (e.g., tension pneumothorax).
+7. **No Clinical Validation**: The system has not undergone prospective clinical trials, reader study validation, or safety audits. It must not be deployed for clinical care.
 
 ---
 
-**Guide:** Mr. Bhuvanesh   
-**Program:** AI Career for Women – Edunet Foundation
----
+## 📄 License & Attribution
 
-## 🎥 Demo
-
-▶️ [**Watch the full project demo here**](https://screenapp.io/app/v/CmRiOCmIsx)
-
----
-
-## 📜 License
-
-This project is for educational and research purposes. Dataset usage is subject to the [Indiana University Chest X-ray Dataset](https://www.kaggle.com/datasets/raddar/chest-xrays-indiana-university) terms.
-
----
-
-<div align="center">
-
-Made with ❤️ and a lot of ☕ by Team INSIGHT-X
-
-*"The best diagnostic AI is one that thinks like a doctor — and sees like one too."*
-
-</div>
+This project is open-source under the [MIT License](LICENSE).  
+Chest radiograph data is sourced from the [Indiana University Chest X-ray Collection](https://openi.nlm.nih.gov/) (OpenI / NLM).

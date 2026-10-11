@@ -1,0 +1,19 @@
+[project]
+name = "insightx"
+version = "1.0.0"
+description = "AI-Powered Multimodal Clinical Decision Support System"
+requires-python = ">=3.11"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["notebooks", "*.ipynb"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["api/tests"]
+python_files = "test_*.py"
+pythonpath = ["."]
