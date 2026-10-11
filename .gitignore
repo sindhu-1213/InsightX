@@ -27,6 +27,8 @@ models/*
 image_features_final.npy
 insightx_rf_model.pkl
 insightx_scaler.pkl
+models/smoke/
+reports/smoke/
 
 # ── Secrets & credentials (Rule: Never commit secrets) ───────────────────────
 .env

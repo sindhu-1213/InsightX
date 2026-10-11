@@ -47,7 +47,10 @@ def get_model_components(
     base_layer = model.get_layer("mobilenetv2_1.00_224")
     gap_layer = model.get_layer("gap")
     drop_layer = model.get_layer("head_dropout")
-    pred_layer = model.get_layer("prediction_output")
+    try:
+        pred_layer = model.get_layer("prediction")
+    except ValueError:
+        pred_layer = model.get_layer("prediction_output")
     return base_layer, gap_layer, drop_layer, pred_layer
 
 
