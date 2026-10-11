@@ -1,0 +1,157 @@
+{
+  "dataset_splits": {
+    "train_rows": 5108,
+    "val_rows": 1090,
+    "test_rows": 1095,
+    "total_rows": 7293
+  },
+  "feature_extraction": {
+    "model": "MobileNetV2 (frozen, ImageNet weights, include_top=False, pooling=avg)",
+    "embedding_dim": 1280,
+    "batch_size": 64,
+    "runtime_seconds": 70.22,
+    "cache_path": "data/processed/image_features.npy",
+    "index_path": "data/processed/feature_index.csv"
+  },
+  "majority_class_baseline": {
+    "majority_class": "Abnormal (1)",
+    "accuracy": 0.6018264840182649,
+    "f1": 0.7514253135689852,
+    "roc_auc": 0.5,
+    "confusion_matrix": [
+      [
+        0,
+        436
+      ],
+      [
+        0,
+        659
+      ]
+    ]
+  },
+  "models": {
+    "text_only": {
+      "display_name": "Text-Only (Findings TF-IDF)",
+      "chosen_C": 0.01,
+      "val_metrics_by_c": {
+        "0.01": {
+          "accuracy": 0.9155963302752294,
+          "f1": 0.9336219336219336,
+          "roc_auc": 0.9743441690813262
+        },
+        "0.1": {
+          "accuracy": 0.9165137614678899,
+          "f1": 0.9337217771303714,
+          "roc_auc": 0.9736540987011889
+        },
+        "1.0": {
+          "accuracy": 0.9137614678899083,
+          "f1": 0.931185944363104,
+          "roc_auc": 0.9715064306813741
+        },
+        "10.0": {
+          "accuracy": 0.8972477064220183,
+          "f1": 0.9176470588235294,
+          "roc_auc": 0.9617081354368745
+        }
+      },
+      "test_metrics": {
+        "accuracy": 0.9068493150684932,
+        "f1": 0.9256559766763849,
+        "roc_auc": 0.9676149573304006,
+        "confusion_matrix": [
+          [
+            358,
+            78
+          ],
+          [
+            24,
+            635
+          ]
+        ]
+      }
+    },
+    "image_only": {
+      "display_name": "Image-Only (MobileNetV2 GAP)",
+      "chosen_C": 0.01,
+      "val_metrics_by_c": {
+        "0.01": {
+          "accuracy": 0.6541284403669725,
+          "f1": 0.700079554494829,
+          "roc_auc": 0.7227360586418993
+        },
+        "0.1": {
+          "accuracy": 0.6403669724770642,
+          "f1": 0.6927899686520376,
+          "roc_auc": 0.6902428977322739
+        },
+        "1.0": {
+          "accuracy": 0.6339449541284403,
+          "f1": 0.6894941634241245,
+          "roc_auc": 0.6782511644937665
+        },
+        "10.0": {
+          "accuracy": 0.6339449541284403,
+          "f1": 0.6894941634241245,
+          "roc_auc": 0.6764485316640203
+        }
+      },
+      "test_metrics": {
+        "accuracy": 0.6484018264840182,
+        "f1": 0.6980392156862745,
+        "roc_auc": 0.7181683395748353,
+        "confusion_matrix": [
+          [
+            265,
+            171
+          ],
+          [
+            214,
+            445
+          ]
+        ]
+      }
+    },
+    "fused": {
+      "display_name": "Fused (Image + Text hstack)",
+      "chosen_C": 0.01,
+      "val_metrics_by_c": {
+        "0.01": {
+          "accuracy": 0.908256880733945,
+          "f1": 0.9246987951807228,
+          "roc_auc": 0.9706191973354834
+        },
+        "0.1": {
+          "accuracy": 0.8972477064220183,
+          "f1": 0.9152798789712556,
+          "roc_auc": 0.9672533438486915
+        },
+        "1.0": {
+          "accuracy": 0.8853211009174312,
+          "f1": 0.904507257448434,
+          "roc_auc": 0.9606730298666686
+        },
+        "10.0": {
+          "accuracy": 0.8807339449541285,
+          "f1": 0.8998459167950693,
+          "roc_auc": 0.9591661414855526
+        }
+      },
+      "test_metrics": {
+        "accuracy": 0.8949771689497716,
+        "f1": 0.9118773946360154,
+        "roc_auc": 0.962947752363186,
+        "confusion_matrix": [
+          [
+            385,
+            51
+          ],
+          [
+            64,
+            595
+          ]
+        ]
+      }
+    }
+  }
+}

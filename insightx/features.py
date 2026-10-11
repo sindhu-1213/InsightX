@@ -1,4 +1,4 @@
-﻿"""Image feature extraction via MobileNetV2 and multimodal feature fusion."""
+"""Image feature extraction via MobileNetV2 and multimodal feature fusion."""
 
 import numpy as np
 import tensorflow as tf
@@ -86,6 +86,7 @@ def extract_batch_image_features(
     def _load_and_preprocess(path: tf.Tensor) -> tf.Tensor:
         img_bytes = tf.io.read_file(path)
         img = tf.image.decode_png(img_bytes, channels=3)
+        img = tf.cast(img, tf.float32)
         img = tf.image.resize(img, [224, 224])
         return preprocess_input(img)
 
