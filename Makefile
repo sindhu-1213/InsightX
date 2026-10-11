@@ -1,4 +1,4 @@
-.PHONY: setup lint test
+.PHONY: setup lint test preprocess
 
 setup:
 	python -m pip install --upgrade pip
@@ -10,3 +10,6 @@ lint:
 
 test:
 	pytest api/tests/
+
+preprocess:
+	python -m insightx.preprocess

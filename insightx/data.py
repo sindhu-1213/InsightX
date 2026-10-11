@@ -45,21 +45,28 @@ def map_problem_to_label(problem: Any) -> int | None:
 def filter_by_existing_images(
     df: pd.DataFrame,
     images_dir: Path | str = "data/raw/images_normalized",
-) -> pd.DataFrame:
+    return_missing: bool = False,
+) -> pd.DataFrame | tuple[pd.DataFrame, list[str]]:
     """Keep rows whose image file exists in the specified images folder.
 
     Args:
         df: DataFrame containing a 'filename' column.
         images_dir: Directory containing normalized chest X-rays.
+        return_missing: If True, returns a tuple of (filtered_df, missing_filenames).
 
     Returns:
-        DataFrame filtered to rows where the image file exists on disk.
+        DataFrame filtered to rows where the image file exists on disk,
+        or tuple of (filtered_df, missing_filenames) if return_missing=True.
     """
     img_dir = Path(images_dir)
     exists_mask = df["filename"].apply(
         lambda fname: (img_dir / str(fname).strip()).is_file()
     )
-    return df[exists_mask].reset_index(drop=True)
+    filtered = df[exists_mask].reset_index(drop=True)
+    if return_missing:
+        missing_filenames = df.loc[~exists_mask, "filename"].tolist()
+        return filtered, missing_filenames
+    return filtered
 
 
 def load_dataset(
@@ -72,44 +79,59 @@ def load_dataset(
 
     Steps:
         1. Inner-joins projections and reports on 'uid'.
-        2. Filters rows whose image file exists in images_dir if the folder exists
-           and contains images (or if require_images_exist is True).
+        2. Filters rows whose image file exists on disk.
         3. Defines labels: 0 for exact 'normal', 1 for any other finding,
            dropping 'No Indexing' and empty rows.
-        4. Retains the clinical 'findings' text column for text baselines.
+        4. Prints accounting of dropped rows and reasons.
 
     Args:
         projections_path: Path to projections CSV.
         reports_path: Path to reports CSV.
         images_dir: Directory of normalized images.
-        require_images_exist: If True, strictly require image file existence
-                              even if images_dir is missing or empty.
+        require_images_exist: If True, strictly require image file existence.
 
     Returns:
         Cleaned, labeled DataFrame.
     """
     df_proj = pd.read_csv(projections_path)
     df_repo = pd.read_csv(reports_path)
+    total_proj_rows = len(df_proj)
 
-    # 1. Merge on uid (inner join)
+    # 1. Merge on uid
     merged = pd.merge(df_proj, df_repo, on="uid", how="inner")
+    dropped_unmatched_uid = total_proj_rows - len(merged)
 
-    # Filter to existing images if images directory is available
+    # 2. Filter to existing images
     img_path = Path(images_dir)
-    if img_path.exists() and any(img_path.iterdir()):
-        merged = filter_by_existing_images(merged, images_dir=img_path)
-    elif require_images_exist:
-        merged = filter_by_existing_images(merged, images_dir=img_path)
+    dropped_missing_image = 0
+    missing_filenames: list[str] = []
+    if (img_path.exists() and any(img_path.iterdir())) or require_images_exist:
+        merged, missing_filenames = filter_by_existing_images(
+            merged, images_dir=img_path, return_missing=True
+        )
+        dropped_missing_image = len(missing_filenames)
 
-    # 2. Define label and drop 'No Indexing' or empty rows
-    labels = merged["Problems"].apply(map_problem_to_label)
-    merged["label"] = labels
+    # 3. Define label and identify dropped reasons
+    def classify_drop_reason(val: Any) -> str:
+        if val is None or pd.isna(val):
+            return "empty_or_nan"
+        val_s = str(val).strip()
+        if not val_s:
+            return "empty_or_nan"
+        if val_s.lower() == "no indexing":
+            return "no_indexing"
+        return "valid"
+
+    reasons = merged["Problems"].apply(classify_drop_reason)
+    dropped_no_indexing = int((reasons == "no_indexing").sum())
+    dropped_empty_or_nan = int((reasons == "empty_or_nan").sum())
+
+    merged["label"] = merged["Problems"].apply(map_problem_to_label)
     clean_df = merged[merged["label"].notna()].copy()
     clean_df["label"] = clean_df["label"].astype(int)
     clean_df = clean_df.reset_index(drop=True)
 
-    # 3. Keep text column (findings) for baseline
-    # Retain core columns: uid, filename, projection, findings, Problems, label
+    # 4. Retain core columns
     columns_to_keep = [
         "uid",
         "filename",
@@ -118,25 +140,45 @@ def load_dataset(
         "Problems",
         "label",
     ]
-    # Retain optional additional columns if present
     for col in ["impression", "indication", "comparison"]:
         if col in clean_df.columns and col not in columns_to_keep:
             columns_to_keep.append(col)
 
     clean_df = clean_df[columns_to_keep]
 
-    # Print class counts
+    # Print comprehensive accounting
     normal_count = int((clean_df["label"] == 0).sum())
     abnormal_count = int((clean_df["label"] == 1).sum())
-    total_count = len(clean_df)
+    total_dropped = (
+        dropped_unmatched_uid
+        + dropped_missing_image
+        + dropped_no_indexing
+        + dropped_empty_or_nan
+    )
 
-    print("=" * 60)
-    print("  InsightX Dataset Loaded")
-    print(f"  Total Valid Samples: {total_count:,} across {clean_df['uid'].nunique():,} patients")
-    print("  Class Counts (Problems column mapping):")
-    print(f"    - Normal   (0): {normal_count:,} ({normal_count / total_count * 100:.1f}%)")
-    print(f"    - Abnormal (1): {abnormal_count:,} ({abnormal_count / total_count * 100:.1f}%)")
-    print("=" * 60)
+    total_valid = len(clean_df)
+    norm_pct = normal_count / total_valid * 100
+    abnorm_pct = abnormal_count / total_valid * 100
+    n_patients = clean_df["uid"].nunique()
+
+    print("=" * 65)
+    print("  INSIGHTX DATASET LOADING & CLEANING AUDIT")
+    print("=" * 65)
+    print(f"  Input Projections Rows:         {total_proj_rows:,}")
+    print(f"  Input Reports Rows:             {len(df_repo):,}")
+    print("  --- Dropped Rows Accounting ---")
+    print(f"  - Dropped (Unmatched UID):      {dropped_unmatched_uid:,}")
+    print(f"  - Dropped (Missing image file): {dropped_missing_image:,}")
+    if missing_filenames:
+        print(f"    Missing on disk: {missing_filenames}")
+    print(f"  - Dropped ('No Indexing'):      {dropped_no_indexing:,}")
+    print(f"  - Dropped (Empty / NaN):        {dropped_empty_or_nan:,}")
+    print(f"  Total Dropped Rows:             {total_dropped:,}")
+    print("  --- Retained Clean Dataset ---")
+    print(f"  Total Valid Samples:            {total_valid:,} ({n_patients:,} unique patients)")
+    print(f"  Normal   (label = 0):           {normal_count:,} ({norm_pct:.1f}%)")
+    print(f"  Abnormal (label = 1):           {abnormal_count:,} ({abnorm_pct:.1f}%)")
+    print("=" * 65)
 
     return clean_df
 
@@ -190,11 +232,34 @@ def create_patient_splits(
 
     splits_df = pd.concat([train_df, val_df, test_df], ignore_index=True)
 
+    # Programmatic verification of zero patient overlap
+    train_uids = set(train_df["uid"].unique())
+    val_uids = set(val_df["uid"].unique())
+    test_uids = set(test_df["uid"].unique())
+
+    overlap_train_val = train_uids.intersection(val_uids)
+    overlap_val_test = val_uids.intersection(test_uids)
+    overlap_train_test = train_uids.intersection(test_uids)
+
+    if overlap_train_val or overlap_val_test or overlap_train_test:
+        raise AssertionError(
+            f"Patient leakage detected! Overlaps: "
+            f"train/val: {len(overlap_train_val)}, "
+            f"val/test: {len(overlap_val_test)}, "
+            f"train/test: {len(overlap_train_test)}"
+        )
+
+    print("\n[VERIFIED] Zero patient leakage confirmed programmatically:")
+    print(f"  - Unique Train patients: {len(train_uids):,}")
+    print(f"  - Unique Val patients:   {len(val_uids):,}")
+    print(f"  - Unique Test patients:  {len(test_uids):,}")
+    print("  - Intersections: train & val = 0, val & test = 0, train & test = 0.")
+
     # Save to disk
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     splits_df.to_csv(out, index=False)
-    print(f"\n[OK] Saved splits to: {out}")
+    print(f"[OK] Saved splits to: {out}")
 
     # Print summary table
     print_split_summary(splits_df)
@@ -215,8 +280,8 @@ def print_split_summary(splits_df: pd.DataFrame) -> None:
 
         rows.append({
             "Split": split_name,
-            "Samples": n_samples,
-            "Patients": n_patients,
+            "Images": n_samples,
+            "Patients (UIDs)": n_patients,
             "Normal (0)": n_normal,
             "Abnormal (1)": n_abnormal,
             "% Abnormal": f"{pct_abnormal:.1f}%",
@@ -231,24 +296,21 @@ def print_split_summary(splits_df: pd.DataFrame) -> None:
 
     rows.append({
         "Split": "TOTAL",
-        "Samples": total_samples,
-        "Patients": total_patients,
+        "Images": total_samples,
+        "Patients (UIDs)": total_patients,
         "Normal (0)": total_norm,
         "Abnormal (1)": total_abnorm,
         "% Abnormal": f"{pct_total:.1f}%",
     })
 
     summary_df = pd.DataFrame(rows)
-    print("\n" + "=" * 70)
+    print("\n" + "=" * 75)
     print("  SPLIT SUMMARY & CLASS BALANCE (70 / 15 / 15)")
-    print("=" * 70)
+    print("=" * 75)
     print(summary_df.to_string(index=False))
-    print("=" * 70)
+    print("=" * 75)
 
 
-if __name__ == "__main__":
-    df = load_dataset()
-    create_patient_splits(df)
 def patient_level_split(
     df: pd.DataFrame,
     test_size: float = 0.2,
@@ -258,3 +320,8 @@ def patient_level_split(
     splitter = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
     train_idx, test_idx = next(splitter.split(df, groups=df["uid"]))
     return df.iloc[train_idx].reset_index(drop=True), df.iloc[test_idx].reset_index(drop=True)
+
+
+if __name__ == "__main__":
+    df = load_dataset()
+    create_patient_splits(df)
