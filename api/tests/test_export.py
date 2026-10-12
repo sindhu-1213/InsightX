@@ -24,20 +24,11 @@ WEIGHTS_JSON_PATH = Path("models/gradcam_head_weights.json")
 @pytest.fixture(scope="module")
 def keras_model():
     """Load fine-tuned Keras model."""
-    if not MODEL_KERAS_PATH.is_file():
+    if not MODEL_KERAS_PATH.is_file() and not Path("models/insightx.weights.h5").is_file():
         pytest.skip(f"Model file not found: {MODEL_KERAS_PATH}")
-    import keras
+    from insightx.model_io import load_trained_model
 
-    bn_orig = keras.layers.BatchNormalization.__init__
-    keras.layers.BatchNormalization.__init__ = lambda self, *a, **kw: bn_orig(
-        self, *a, **{k: v for k, v in kw.items() if not k.startswith("renorm")}
-    )
-
-    gl_orig = keras.initializers.GlorotUniform.__init__
-    keras.initializers.GlorotUniform.__init__ = lambda self, *a, **kw: gl_orig(
-        self, *a, **{k: v for k, v in kw.items() if not k.endswith("_axes")}
-    )
-    return tf.keras.models.load_model(str(MODEL_KERAS_PATH))
+    return load_trained_model()
 
 
 @pytest.fixture(scope="module")
@@ -141,3 +132,33 @@ def test_compliance_rules_in_exported_metadata():
             assert "disclaimer" in data
             assert "not a certified medical device" in data["disclaimer"].lower()
             assert "diagnosis" not in data["disclaimer"].lower()
+
+
+def test_onnx_matches_keras_on_real_dataset_images(keras_model, onnx_session):
+    """Verify ONNX Runtime matches Keras predictions on 20 actual test images within 1e-3."""
+    splits_csv = Path("data/processed/splits.csv")
+    images_dir = Path("data/processed/images_224")
+    if not splits_csv.is_file() or not images_dir.is_dir():
+        pytest.skip("Test images or splits.csv not found")
+
+    import pandas as pd
+    from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
+
+    df = pd.read_csv(splits_csv)
+    test_df = df[df["split"] == "test"].head(20)
+    batch = []
+    for fn in test_df["filename"]:
+        raw = tf.io.read_file(str(images_dir / str(fn).strip()))
+        img = tf.image.decode_png(raw, channels=3)
+        img = tf.cast(img, tf.float32)
+        batch.append(preprocess_input(img).numpy())
+    test_batch = np.stack(batch, axis=0)
+
+    keras_preds = keras_model.predict(test_batch, verbose=0)
+    input_name = onnx_session.get_inputs()[0].name
+    onnx_preds = onnx_session.run(None, {input_name: test_batch})[0]
+
+    max_abs_diff = float(np.max(np.abs(keras_preds - onnx_preds)))
+    print(f"\n[Test] Real images max diff Keras vs ONNX: {max_abs_diff:.6e}")
+    assert np.allclose(keras_preds, onnx_preds, atol=1e-3)
+

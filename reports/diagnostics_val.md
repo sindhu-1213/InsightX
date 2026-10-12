@@ -1,7 +1,7 @@
 # InsightX — Validation Split Diagnostic Report
 
 > **Validation-Only Analysis**: This diagnostic was conducted strictly on the **validation split**
-> (1,090 images across 564 patients). The test split was untouched and unobserved.
+> (1,090 images across 405 patients). The test split was untouched and unobserved.
 >
 > **Research Demo Only**: This tool is not a certified medical device. Outputs are AI predictions
 > for research investigation only and must not be used to guide clinical decisions.

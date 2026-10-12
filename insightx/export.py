@@ -90,8 +90,10 @@ def export_to_onnx(
     out_file = Path(onnx_path)
     out_file.parent.mkdir(parents=True, exist_ok=True)
 
-    print(f"[Export] Loading Keras model from {m_path}...")
-    keras_model = tf.keras.models.load_model(str(m_path))
+    from insightx.model_io import load_trained_model
+
+    print("[Export] Loading rebuilt Keras model with trained weights...")
+    keras_model = load_trained_model()
 
     input_signature = (
         tf.TensorSpec(shape=(None, 224, 224, 3), dtype=tf.float32, name="image_input"),
@@ -147,20 +149,18 @@ def export_gradcam_onnx(
     Returns:
         Tuple of (onnx_path, weights_json_path).
     """
-    m_path = Path(model_path)
-    if not m_path.is_file():
-        raise FileNotFoundError(f"Model file not found at {m_path}")
-
     out_onnx = Path(onnx_path)
     out_onnx.parent.mkdir(parents=True, exist_ok=True)
     out_weights = Path(weights_json_path)
 
-    print(f"[Export] Building dual-output Grad-CAM model from {m_path}...")
-    keras_model = tf.keras.models.load_model(str(m_path))
+    print("[Export] Building dual-output Grad-CAM model from trained weights...")
+    from insightx.model_io import load_trained_model
+
+    keras_model = load_trained_model()
 
     base_layer = keras_model.get_layer("mobilenetv2_1.00_224")
     gap_layer = keras_model.get_layer("gap")
-    dense_layer = keras_model.get_layer("prediction_output")
+    dense_layer = keras_model.get_layer("prediction")
 
     dense_w, dense_b = dense_layer.get_weights()  # shape (1280, 1) and (1,)
 

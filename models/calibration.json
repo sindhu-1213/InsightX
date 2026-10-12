@@ -1,0 +1,16 @@
+{
+  "method": "platt_scaling",
+  "fit_split": "val",
+  "coef": 0.8150681805454365,
+  "intercept": 0.6795524680848608,
+  "disclaimer": "Research Demo Only - This tool is not a certified medical device. Results are AI predictions for research purposes only and must not be used to guide clinical decisions. Always consult a qualified radiologist.",
+  "threshold_youden": 0.6521837516887142,
+  "threshold_90_specificity": 0.7290522498949036,
+  "val_youden_j": 0.4006597917818251,
+  "val_sensitivity_at_youden": 0.5978755690440061,
+  "val_specificity_at_youden": 0.802784222737819,
+  "val_sensitivity_at_90_specificity": 0.4597875569044006,
+  "val_specificity_at_90_specificity": 0.9002320185614849,
+  "threshold_youden_uncalibrated": 0.4843927323818207,
+  "threshold_90_specificity_uncalibrated": 0.5940331816673279
+}

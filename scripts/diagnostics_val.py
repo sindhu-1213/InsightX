@@ -1,8 +1,12 @@
 """Validation split read-only diagnostic for models/mobilenet_finetuned.keras."""
 
 import logging
+import sys
 from collections import Counter
 from pathlib import Path
+
+# Ensure workspace root is in sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
 import pandas as pd
@@ -51,7 +55,6 @@ def bootstrap_auc_by_uid(
 
 def main() -> None:
     splits_path = Path("data/processed/splits.csv")
-    model_path = Path("models/mobilenet_finetuned.keras")
     images_dir = Path("data/processed/images_224")
     report_path = Path("reports/diagnostics_val.md")
 
@@ -68,21 +71,9 @@ def main() -> None:
             projections_csv[["filename", "projection"]], on="filename", how="left"
         )
 
-    logger.info(f"Loading trained model from {model_path}...")
-    # Handle cross-version Keras 3 deserialization arguments
-    import keras
+    from insightx.model_io import load_trained_model
 
-    bn_orig = keras.layers.BatchNormalization.__init__
-    keras.layers.BatchNormalization.__init__ = lambda self, *a, **kw: bn_orig(
-        self, *a, **{k: v for k, v in kw.items() if not k.startswith("renorm")}
-    )
-
-    gl_orig = keras.initializers.GlorotUniform.__init__
-    keras.initializers.GlorotUniform.__init__ = lambda self, *a, **kw: gl_orig(
-        self, *a, **{k: v for k, v in kw.items() if not k.endswith("_axes")}
-    )
-
-    model = tf.keras.models.load_model(str(model_path))
+    model = load_trained_model()
 
     # Build tf.data evaluation pipeline for validation split only
     from tensorflow.keras.applications.mobilenet_v2 import preprocess_input

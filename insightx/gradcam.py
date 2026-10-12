@@ -27,11 +27,10 @@ def load_finetuned_model(
 ) -> tf.keras.Model:
     """Load and cache fine-tuned MobileNetV2 Keras model in memory."""
     global _CACHED_MODEL
-    path = Path(model_path)
-    if not path.is_file():
-        raise FileNotFoundError(f"Fine-tuned model not found at {path}")
     if _CACHED_MODEL is None:
-        _CACHED_MODEL = tf.keras.models.load_model(str(path))
+        from insightx.model_io import load_trained_model
+
+        _CACHED_MODEL = load_trained_model()
     return _CACHED_MODEL
 
 
@@ -193,84 +192,167 @@ def generate_gradcam_overlay(
 
 def generate_8_test_gradcam_examples(
     splits_path: Path | str = "data/processed/splits.csv",
-    model_path: Path | str = "models/mobilenet_finetuned.keras",
+    images_dir: Path | str = "data/processed/images_224",
+    calib_json_path: Path | str = "models/calibration.json",
     output_dir: Path | str = "reports/gradcam_examples",
 ) -> list[dict[str, Any]]:
-    """Generate 8 Grad-CAM example overlays (4 normal, 4 abnormal from test split).
+    """Generate 8 Grad-CAM example overlays (4 correct, 4 incorrect) from test split.
 
-    Saves overlay PNGs into output_dir and includes research disclaimer.
+    Selection:
+        - 4 Correct: 2 True Normal (TN), 2 True Abnormal (TP)
+        - 4 Incorrect: 2 False Positives (FP), 2 False Negatives (FN)
+
+    Saves overlay PNGs and README.md into output_dir.
+    Notice: Heatmaps are for research exploration only and are not clinically meaningful.
 
     Returns:
         List of generated example metadata dictionaries.
     """
+    import json
+
     import pandas as pd
 
     out_path = Path(output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
 
+    img_dir = Path(images_dir)
     df = pd.read_csv(splits_path)
-    test_df = df[df["split"] == "test"]
+    test_df = df[df["split"] == "test"].copy().reset_index(drop=True)
 
-    normal_cases = test_df[test_df["label"] == 0].head(4)
-    abnormal_cases = test_df[test_df["label"] == 1].head(4)
+    # Load operating threshold and calibrator
+    thresh = 0.6522
+    calib_file = Path(calib_json_path)
+    calibrator = None
+    if calib_file.is_file():
+        with open(calib_file, encoding="utf-8") as f:
+            calib_meta = json.load(f)
+            thresh = calib_meta.get("threshold_youden", 0.6522)
+            from sklearn.linear_model import LogisticRegression
+            calibrator = LogisticRegression()
+            calibrator.coef_ = np.array([[calib_meta["coef"]]])
+            calibrator.intercept_ = np.array([calib_meta["intercept"]])
+            calibrator.classes_ = np.array([0, 1])
 
-    cases = []
-    for _, row in normal_cases.iterrows():
-        cases.append((row, False))
-    for _, row in abnormal_cases.iterrows():
-        cases.append((row, True))
+    model = load_finetuned_model()
 
-    model = load_finetuned_model(model_path)
-    img_dir = Path("data/raw/images_normalized")
+    # Compute predictions for all test images
+    from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
+
+    from insightx.evaluate import apply_platt_calibration
+
+    def _load_img(p: tf.Tensor) -> tf.Tensor:
+        raw = tf.io.read_file(p)
+        im = tf.image.decode_png(raw, channels=3)
+        im = tf.cast(im, tf.float32)
+        return preprocess_input(im)
+
+    test_paths = [str(img_dir / str(f).strip()) for f in test_df["filename"]]
+    ds = tf.data.Dataset.from_tensor_slices(test_paths).map(_load_img).batch(32)
+    uncal_probs = model.predict(ds, verbose=0).flatten()
+
+    if calibrator is not None:
+        probs = apply_platt_calibration(calibrator, uncal_probs)
+    else:
+        probs = uncal_probs
+
+    test_df["pred_prob"] = probs
+    test_df["pred_label"] = (probs >= thresh).astype(int)
+
+    # 4 Correct: 2 TN (most confident), 2 TP (most confident)
+    tn_cases = test_df[(test_df["label"] == 0) & (test_df["pred_label"] == 0)].sort_values(
+        by="pred_prob", ascending=True
+    ).head(2)
+    tp_cases = test_df[(test_df["label"] == 1) & (test_df["pred_label"] == 1)].sort_values(
+        by="pred_prob", ascending=False
+    ).head(2)
+
+    # 4 Incorrect: 2 FP (highest prob), 2 FN (lowest prob)
+    fp_cases = test_df[(test_df["label"] == 0) & (test_df["pred_label"] == 1)].sort_values(
+        by="pred_prob", ascending=False
+    ).head(2)
+    fn_cases = test_df[(test_df["label"] == 1) & (test_df["pred_label"] == 0)].sort_values(
+        by="pred_prob", ascending=True
+    ).head(2)
+
+    selected_groups = [
+        ("correct_tn", tn_cases, "Correct (True Normal)"),
+        ("correct_tp", tp_cases, "Correct (True Abnormal)"),
+        ("incorrect_fp", fp_cases, "Incorrect (False Positive)"),
+        ("incorrect_fn", fn_cases, "Incorrect (False Negative)"),
+    ]
+
     results = []
+    idx = 1
+    md_rows = []
 
-    for idx, (row, is_abnormal) in enumerate(cases, start=1):
-        filename = str(row["filename"])
-        uid = row["uid"]
-        problem = str(row.get("Problems", "normal" if not is_abnormal else "abnormal"))
-        label_str = "normal" if not is_abnormal else "abnormal"
+    for prefix, group_df, desc in selected_groups:
+        for _, row in group_df.iterrows():
+            filename = str(row["filename"]).strip()
+            uid = row["uid"]
+            true_label = "Abnormal" if row["label"] == 1 else "Normal"
+            pred_prob = float(row["pred_prob"])
+            pred_class = "Abnormal" if row["pred_label"] == 1 else "Normal"
+            problem = str(row.get("Problems", "None"))
+            proj = str(row.get("projection", "Unknown"))
 
-        # Check if actual image file exists on disk
-        img_file = img_dir / filename
-        if not img_file.is_file():
-            raise FileNotFoundError(
-                f"Expected image '{img_file}' on disk in '{img_dir}' but file not found. "
-                f"Refusing to generate Grad-CAM examples without real radiograph files."
+            img_file = img_dir / filename
+            image = Image.open(img_file).convert("RGB")
+
+            overlay_array, _ = generate_gradcam_overlay(
+                image=image,
+                model=model,
             )
-        image = Image.open(img_file).convert("RGB")
 
-        # Generate overlay PNG array
-        overlay_array, pred_prob = generate_gradcam_overlay(
-            image=image,
-            model=model,
-        )
+            out_filename = f"{idx:02d}_{prefix}_{filename}"
+            save_path = out_path / out_filename
+            Image.fromarray(overlay_array).save(save_path, format="PNG")
 
-        # Save overlay PNG
-        clean_problem = problem.lower().replace(" ", "_").replace("/", "_")
-        out_filename = f"example_{idx:02d}_{label_str}_uid{uid}_{clean_problem}.png"
-        save_path = out_path / out_filename
+            meta = {
+                "example_index": idx,
+                "category": desc,
+                "filename": filename,
+                "uid": uid,
+                "projection": proj,
+                "ground_truth": true_label,
+                "predicted_label": pred_class,
+                "predicted_probability": round(pred_prob, 4),
+                "problems": problem,
+                "output_image": str(save_path),
+                "disclaimer": RESEARCH_DISCLAIMER,
+            }
+            results.append(meta)
+            md_rows.append(
+                f"| `{filename}` | {desc} | {proj} | {true_label} | "
+                f"{pred_prob:.4f} | {problem} | `{out_filename}` |"
+            )
+            print(
+                f"[Grad-CAM] Saved {out_filename} | {desc} | Pred Prob: {pred_prob:.4f}"
+            )
+            idx += 1
 
-        overlay_pil = Image.fromarray(overlay_array)
-        overlay_pil.save(save_path, format="PNG")
+    # Write summary README.md
+    readme_path = out_path / "README.md"
+    readme_lines = [
+        "# InsightX: Grad-CAM Explainability Examples (Test Split)",
+        "",
+        "> **Research Demo Only - This tool is not a certified medical device.**",
+        "> Outputs are AI predictions and saliency maps for research investigation only.",
+        "> **Heatmaps are gradient-weighted activations of network feature maps and must",
+        "> NOT be interpreted as clinically verified or diagnostic.**",
+        "",
+        "The following 8 test cases illustrate model visual attention across 4 correct and",
+        f"4 incorrect predictions under the validation-chosen threshold (`{thresh:.4f}`).",
+        "",
+        "| Filename | Category | Projection | Ground Truth | Pred Prob | Problems | Overlay File |",
+        "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
+    ] + md_rows + [""]
 
-        meta = {
-            "example_index": idx,
-            "filename": filename,
-            "uid": uid,
-            "finding_class": label_str,
-            "annotated_problem": problem,
-            "predicted_abnormality_probability": round(pred_prob, 4),
-            "output_image": str(save_path),
-            "disclaimer": RESEARCH_DISCLAIMER,
-        }
-        results.append(meta)
-        print(
-            f"[Grad-CAM] Saved {save_path.name} | "
-            f"Class: {label_str} | Pred Prob: {pred_prob:.4f}"
-        )
+    with open(readme_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(readme_lines))
 
     return results
 
 
 if __name__ == "__main__":
     generate_8_test_gradcam_examples()
+
