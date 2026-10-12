@@ -26,6 +26,17 @@ def keras_model():
     """Load fine-tuned Keras model."""
     if not MODEL_KERAS_PATH.is_file():
         pytest.skip(f"Model file not found: {MODEL_KERAS_PATH}")
+    import keras
+
+    bn_orig = keras.layers.BatchNormalization.__init__
+    keras.layers.BatchNormalization.__init__ = lambda self, *a, **kw: bn_orig(
+        self, *a, **{k: v for k, v in kw.items() if not k.startswith("renorm")}
+    )
+
+    gl_orig = keras.initializers.GlorotUniform.__init__
+    keras.initializers.GlorotUniform.__init__ = lambda self, *a, **kw: gl_orig(
+        self, *a, **{k: v for k, v in kw.items() if not k.endswith("_axes")}
+    )
     return tf.keras.models.load_model(str(MODEL_KERAS_PATH))
 
 
