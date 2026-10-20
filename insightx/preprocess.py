@@ -16,6 +16,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from PIL import Image
 from tqdm import tqdm
@@ -58,6 +59,28 @@ def resize_with_padding(
     canvas.paste(resized, (paste_x, paste_y))
 
     return canvas
+
+
+def preprocess_image_for_onnx(
+    image: Image.Image,
+    target_size: tuple[int, int] = (224, 224),
+) -> tuple[Image.Image, np.ndarray]:
+    """Preprocess image for MobileNetV2 ONNX inference.
+
+    Reuses resize_with_padding:
+    1. Converts to grayscale.
+    2. Resizes with padding preserving aspect ratio (LANCZOS).
+    3. Replicates grayscale to 3 channels.
+    4. Applies MobileNetV2 preprocess_input: (x / 127.5) - 1.0.
+
+    Returns:
+        (canvas_pil, tensor_batch) where tensor_batch has shape (1, 224, 224, 3) float32.
+    """
+    canvas = resize_with_padding(image, target_size=target_size)
+    arr_gray = np.asarray(canvas, dtype=np.float32)
+    arr_3ch = np.repeat(arr_gray[:, :, np.newaxis], 3, axis=-1)
+    tensor = (arr_3ch / 127.5) - 1.0
+    return canvas, tensor[np.newaxis, ...]
 
 
 def process_single_image(

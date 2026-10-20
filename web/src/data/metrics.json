@@ -2,19 +2,128 @@
   "disclaimer": "Research Demo Only - This tool is not a certified medical device. Results are AI predictions for research purposes only and must not be used to guide clinical decisions. Always consult a qualified radiologist.",
   "evaluation_split": "test",
   "sample_count": 1095,
-  "accuracy": "PENDING: filled in after real training",
-  "f1_score": "PENDING: filled in after real training",
-  "roc_auc": "PENDING: filled in after real training",
-  "sensitivity_at_90_specificity": "PENDING: filled in after real training",
-  "threshold_at_90_specificity": "PENDING: filled in after real training",
-  "brier_score_uncalibrated": "PENDING: filled in after real training",
-  "brier_score_calibrated": "PENDING: filled in after real training",
+  "provenance": {
+    "n_images_read_val": 1090,
+    "n_images_read_test": 1095,
+    "timestamp": "2026-10-12T07:13:07.137225+00:00",
+    "model_path": "models/mobilenet_finetuned.keras",
+    "model_sha256": "36115e261d26d18988df3495d4609226c723b5c1997b559c0ecc3d73d1a54232",
+    "weights_sha256": "699147a1037fa08d43d60fa5f60d164491a7a5ce2444945f1c41b32c02d6f571",
+    "seed": 42
+  },
+  "roc_auc": 0.7563,
+  "roc_auc_ci_95": [
+    0.718,
+    0.7921
+  ],
+  "threshold_youden": 0.6522,
+  "accuracy": 0.6648,
+  "f1_score": 0.6697,
+  "sensitivity": 0.5645,
+  "specificity": 0.8165,
+  "threshold_at_90_specificity": 0.7291,
+  "sensitivity_at_90_specificity": 0.4537,
+  "specificity_at_90_specificity_threshold": 0.8784,
+  "brier_score_uncalibrated": 0.2167,
+  "brier_score_calibrated": 0.1947,
   "confusion_matrix": [
-    ["PENDING: filled in after real training", "PENDING: filled in after real training"],
-    ["PENDING: filled in after real training", "PENDING: filled in after real training"]
+    [
+      356,
+      80
+    ],
+    [
+      287,
+      372
+    ]
   ],
   "confusion_matrix_labels": [
     "Normal (0)",
     "Abnormal (1)"
+  ],
+  "breakdown_by_projection": [
+    {
+      "projection": "Frontal",
+      "total_count": 563,
+      "normal_count": 228,
+      "abnormal_count": 335,
+      "roc_auc": 0.7587,
+      "ci_95": [
+        0.7187,
+        0.8011
+      ]
+    },
+    {
+      "projection": "Lateral",
+      "total_count": 532,
+      "normal_count": 208,
+      "abnormal_count": 324,
+      "roc_auc": 0.7558,
+      "ci_95": [
+        0.7096,
+        0.7961
+      ]
+    }
+  ],
+  "breakdown_by_finding": [
+    {
+      "finding": "Opacity",
+      "count": 111,
+      "roc_auc": 0.8215,
+      "trust_flag": "Sufficient (>=30 images)"
+    },
+    {
+      "finding": "Lung",
+      "count": 136,
+      "roc_auc": 0.8494,
+      "trust_flag": "Sufficient (>=30 images)"
+    },
+    {
+      "finding": "Pulmonary Atelectasis",
+      "count": 86,
+      "roc_auc": 0.8546,
+      "trust_flag": "Sufficient (>=30 images)"
+    },
+    {
+      "finding": "Cardiomegaly",
+      "count": 79,
+      "roc_auc": 0.913,
+      "trust_flag": "Sufficient (>=30 images)"
+    },
+    {
+      "finding": "Calcinosis",
+      "count": 78,
+      "roc_auc": 0.7974,
+      "trust_flag": "Sufficient (>=30 images)"
+    },
+    {
+      "finding": "Calcified Granuloma",
+      "count": 67,
+      "roc_auc": 0.655,
+      "trust_flag": "Sufficient (>=30 images)"
+    },
+    {
+      "finding": "Thoracic Vertebrae",
+      "count": 64,
+      "roc_auc": 0.794,
+      "trust_flag": "Sufficient (>=30 images)"
+    },
+    {
+      "finding": "Cicatrix",
+      "count": 49,
+      "roc_auc": 0.8377,
+      "trust_flag": "Sufficient (>=30 images)"
+    },
+    {
+      "finding": "Spine",
+      "count": 63,
+      "roc_auc": 0.7899,
+      "trust_flag": "Sufficient (>=30 images)"
+    },
+    {
+      "finding": "Pleural Effusion",
+      "count": 47,
+      "roc_auc": 0.953,
+      "trust_flag": "Sufficient (>=30 images)"
+    }
   ]
 }

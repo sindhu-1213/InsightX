@@ -79,3 +79,10 @@ web/build/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Keep deployable artifacts and documentation images
+!models/insightx.onnx
+!models/insightx_gradcam.onnx
+!samples/*.png
+!reports/*.png
+!reports/gradcam_examples/*.png

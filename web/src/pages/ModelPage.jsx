@@ -2,16 +2,11 @@ import React, { useEffect } from 'react';
 import metricsData from '../data/metrics.json';
 import {
   Brain,
-  Cpu,
-  Layers,
   ShieldAlert,
-  CheckCircle2,
   AlertTriangle,
-  ArrowRight,
   Database,
   BarChart3,
-  Eye,
-  FileText,
+  Layers,
   Sliders
 } from 'lucide-react';
 
@@ -24,32 +19,52 @@ function ModelPage() {
 
   const baselineComparisons = [
     {
-      modality: 'Text-Only Baseline',
-      features: 'Findings TF-IDF (1,000 features)',
-      accuracy: 'PENDING: filled in after real training',
-      f1: 'PENDING: filled in after real training',
-      rocAuc: 'PENDING: filled in after real training',
-      role: 'Research NLP baseline only'
+      modality: 'Majority Class Baseline',
+      features: 'Prevalence (Always Abnormal)',
+      accuracy: '60.18%',
+      f1: '0.7514',
+      rocAuc: '0.5000',
+      role: 'Class prevalence baseline'
     },
     {
-      modality: 'Image-Only (Served Model)',
-      features: 'MobileNetV2 Fine-Tuned (GAP 1,280-dim)',
-      accuracy: 'PENDING: filled in after real training',
-      f1: 'PENDING: filled in after real training',
-      rocAuc: 'PENDING: filled in after real training',
-      role: 'Active ONNX production pipeline'
+      modality: 'Frozen MobileNetV2 GAP',
+      features: 'Image Only (1,280 GAP + Logistic Regression, C=0.01)',
+      accuracy: '64.84%',
+      f1: '0.6980',
+      rocAuc: '0.7182',
+      role: 'Frozen transfer baseline'
+    },
+    {
+      modality: 'Text-Only (Findings TF-IDF)',
+      features: 'Text Only (1,000 TF-IDF features, C=0.01)',
+      accuracy: '90.68%',
+      f1: '0.9257',
+      rocAuc: '0.9676',
+      role: 'Report label leakage baseline'
     },
     {
       modality: 'Multimodal Fused',
-      features: 'Concatenated (1,280 image + 1,000 text)',
-      accuracy: 'PENDING: filled in after real training',
-      f1: 'PENDING: filled in after real training',
-      rocAuc: 'PENDING: filled in after real training',
-      role: 'Exploratory clustering benchmark'
+      features: 'Image + Text Concatenation (C=0.01)',
+      accuracy: '89.50%',
+      f1: '0.9119',
+      rocAuc: '0.9629',
+      role: 'Multimodal benchmark'
+    },
+    {
+      modality: 'Fine-Tuned MobileNetV2 (Served Model)',
+      features: 'Image Only (Fine-tuned + Platt Scaling)',
+      accuracy: '66.48%',
+      f1: '0.6697',
+      rocAuc: '0.7563',
+      role: 'Active image-only production model'
     }
   ];
 
   const limitations = [
+    {
+      title: 'Operating Point Sensitivity Limitation',
+      desc: `At the validation-selected default operating threshold (${metrics.threshold_youden ?? 0.6522}), the model achieves a sensitivity of ${(metrics.sensitivity * 100).toFixed(2)}% (0.5645) and specificity of ${(metrics.specificity * 100).toFixed(2)}% (0.8165). Approximately 43.55% of abnormal radiographs in the test split are not flagged under default settings. At the 90% specificity threshold (${metrics.threshold_at_90_specificity ?? 0.7291}), test sensitivity is ${(metrics.sensitivity_at_90_specificity * 100).toFixed(2)}% (0.4537).`
+    },
     {
       title: 'Single-Institution Cohort',
       desc: 'All training and evaluation data originates exclusively from the Indiana University hospital network. Performance under domain shift across distinct radiology scanner manufacturers (GE, Siemens, Philips) or diverse patient populations has not been established.'
@@ -64,7 +79,7 @@ function ModelPage() {
     },
     {
       title: 'No Clinical or Prospective Trial Validation',
-      desc: 'The system has not been evaluated in prospective clinical trials, reader studies, or emergency settings. It is not an FDA-cleared or CE-marked medical device.'
+      desc: 'The system has not been evaluated in prospective clinical trials, reader studies, or emergency settings. It is an investigational research demonstration and not a certified medical device.'
     }
   ];
 
@@ -144,6 +159,27 @@ function ModelPage() {
         </p>
       </div>
 
+      {/* PROMINENT LIMITATIONS CALLOUT: SENSITIVITY AT OPERATING POINT */}
+      <div
+        className="card"
+        style={{
+          backgroundColor: 'rgba(239, 68, 68, 0.08)',
+          border: '1px solid rgba(239, 68, 68, 0.4)',
+          marginBottom: '3rem',
+          padding: '1.5rem'
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+          <AlertTriangle size={22} color="#ef4444" />
+          <h3 style={{ fontSize: '1.1rem', color: '#ef4444', margin: 0, fontFamily: 'var(--font-heading)' }}>
+            Operating Point Sensitivity Notice
+          </h3>
+        </div>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: '1.6', margin: 0 }}>
+          At the validation-chosen decision threshold (<strong>{metrics.threshold_youden}</strong>), test sensitivity is <strong>{(metrics.sensitivity * 100).toFixed(2)}%</strong> (0.5645) and specificity is <strong>{(metrics.specificity * 100).toFixed(2)}%</strong> (0.8165). This means <strong>43.55% of abnormal radiographs</strong> in the test cohort are not flagged as abnormal at this operating point. At the 90% specificity threshold (<strong>{metrics.threshold_at_90_specificity}</strong>), sensitivity drops to <strong>{(metrics.sensitivity_at_90_specificity * 100).toFixed(2)}%</strong> (0.4537). This research prototype must not be used for patient management.
+        </p>
+      </div>
+
       {/* SECTION 1: SYSTEM PIPELINE DIAGRAM */}
       <section style={{ marginBottom: '3.5rem' }}>
         <div style={{ marginBottom: '1.5rem' }}>
@@ -158,7 +194,6 @@ function ModelPage() {
           </p>
         </div>
 
-        {/* Visual Flowchart Diagram */}
         <div
           className="card"
           style={{
@@ -175,7 +210,6 @@ function ModelPage() {
               minWidth: '320px'
             }}
           >
-            {/* Step 1 */}
             <div
               style={{
                 backgroundColor: 'var(--bg-card)',
@@ -215,10 +249,8 @@ function ModelPage() {
               </div>
             </div>
 
-            {/* Down Arrow */}
             <div style={{ textAlign: 'center', color: '#00d4ff', fontSize: '1.2rem' }}>&darr;</div>
 
-            {/* Step 2 */}
             <div
               style={{
                 backgroundColor: 'var(--bg-card)',
@@ -250,18 +282,16 @@ function ModelPage() {
               </div>
               <div style={{ flex: 1 }}>
                 <h3 style={{ fontSize: '1rem', color: '#ffffff', marginBottom: '0.2rem' }}>
-                  Dual-Output ONNX Runtime Inference
+                  Dual-Output ONNX Inference
                 </h3>
                 <p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', margin: 0 }}>
-                  Simultaneously computes last convolutional feature map (7×7×1280) and raw linear logits via CPU-optimized <code style={{ color: '#00d4ff' }}>onnxruntime</code> without TensorFlow dependencies.
+                  Evaluated with ONNX Runtime on CPU (<code style={{ color: '#00d4ff' }}>insightx_gradcam.onnx</code>, 8.50 MB), outputting linear logit and (7, 7, 1280) conv feature map.
                 </p>
               </div>
             </div>
 
-            {/* Down Arrow */}
             <div style={{ textAlign: 'center', color: '#00d4ff', fontSize: '1.2rem' }}>&darr;</div>
 
-            {/* Step 3 */}
             <div
               style={{
                 backgroundColor: 'var(--bg-card)',
@@ -293,18 +323,16 @@ function ModelPage() {
               </div>
               <div style={{ flex: 1 }}>
                 <h3 style={{ fontSize: '1rem', color: '#ffffff', marginBottom: '0.2rem' }}>
-                  Platt Scaling Probability Calibration
+                  Validation-Fitted Platt Probability Scaling
                 </h3>
                 <p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', margin: 0 }}>
-                  Log-odds transformation: <code style={{ color: '#00d4ff' }}>P = 1 / (1 + exp(-(coef * raw_logit + intercept)))</code> using coefficients fitted on validation data, mitigating overconfidence.
+                  Transforms log-odds into calibrated empirical probabilities via logistic regression fitted on the validation partition.
                 </p>
               </div>
             </div>
 
-            {/* Down Arrow */}
             <div style={{ textAlign: 'center', color: '#00d4ff', fontSize: '1.2rem' }}>&darr;</div>
 
-            {/* Step 4 */}
             <div
               style={{
                 backgroundColor: 'var(--bg-card)',
@@ -336,10 +364,10 @@ function ModelPage() {
               </div>
               <div style={{ flex: 1 }}>
                 <h3 style={{ fontSize: '1rem', color: '#00d4ff', marginBottom: '0.2rem' }}>
-                  NumPy Grad-CAM &amp; Secure Verification Response
+                  NumPy Grad-CAM &amp; Response Serialization
                 </h3>
                 <p style={{ fontSize: '0.825rem', color: '#ffffff', margin: 0 }}>
-                  Computes ReLU(sum(w_k * A_k)) heatmap overlay and returns calibrated probability to client.
+                  Computes ReLU(sum(w_k * A_k)) heatmap overlay and returns calibrated probability to client without TensorFlow dependencies.
                 </p>
               </div>
             </div>
@@ -357,7 +385,7 @@ function ModelPage() {
             Test Split Performance Metrics
           </h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-            Evaluated on the held-out patient test split (N = {metrics.sample_count} images, 564 patient UIDs) from <code style={{ color: '#00d4ff' }}>reports/metrics.json</code>.
+            Evaluated on held-out patient test split (N = {metrics.sample_count} images, 564 patient UIDs) from <code style={{ color: '#00d4ff' }}>reports/metrics.json</code>.
           </p>
         </div>
 
@@ -372,32 +400,46 @@ function ModelPage() {
         >
           <div className="card" style={{ padding: '1.25rem', textAlign: 'center' }}>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>ROC-AUC</div>
-            <div style={{ fontSize: typeof metrics.roc_auc === 'number' ? '2rem' : '1rem', fontWeight: 900, color: '#00d4ff', fontFamily: 'var(--font-heading)' }}>
-              {typeof metrics.roc_auc === 'number' ? Number(metrics.roc_auc).toFixed(4) : metrics.roc_auc}
+            <div style={{ fontSize: '2rem', fontWeight: 900, color: '#00d4ff', fontFamily: 'var(--font-heading)' }}>
+              {Number(metrics.roc_auc).toFixed(4)}
             </div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Full discrimination capacity</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+              95% CI: [{metrics.roc_auc_ci_95 ? metrics.roc_auc_ci_95.join(', ') : '0.7180, 0.7921'}]
+            </div>
           </div>
 
           <div className="card" style={{ padding: '1.25rem', textAlign: 'center' }}>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>TEST ACCURACY</div>
-            <div style={{ fontSize: typeof metrics.accuracy === 'number' ? '2rem' : '1rem', fontWeight: 900, color: '#ffffff', fontFamily: 'var(--font-heading)' }}>
-              {typeof metrics.accuracy === 'number' ? `${(metrics.accuracy * 100).toFixed(2)}%` : metrics.accuracy}
+            <div style={{ fontSize: '2rem', fontWeight: 900, color: '#ffffff', fontFamily: 'var(--font-heading)' }}>
+              {(metrics.accuracy * 100).toFixed(2)}%
             </div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Threshold = 0.50</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+              @ Youden threshold {metrics.threshold_youden}
+            </div>
           </div>
 
           <div className="card" style={{ padding: '1.25rem', textAlign: 'center' }}>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>F1-SCORE</div>
-            <div style={{ fontSize: typeof metrics.f1_score === 'number' ? '2rem' : '1rem', fontWeight: 900, color: '#ffffff', fontFamily: 'var(--font-heading)' }}>
-              {typeof metrics.f1_score === 'number' ? metrics.f1_score.toFixed(4) : metrics.f1_score}
+            <div style={{ fontSize: '2rem', fontWeight: 900, color: '#ffffff', fontFamily: 'var(--font-heading)' }}>
+              {Number(metrics.f1_score).toFixed(4)}
             </div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Balanced precision &amp; recall</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Abnormal class positive</div>
+          </div>
+
+          <div className="card" style={{ padding: '1.25rem', textAlign: 'center' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>SENSITIVITY (@ YOUDEN)</div>
+            <div style={{ fontSize: '2rem', fontWeight: 900, color: '#f59e0b', fontFamily: 'var(--font-heading)' }}>
+              {(metrics.sensitivity * 100).toFixed(2)}%
+            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+              Specificity: {(metrics.specificity * 100).toFixed(2)}%
+            </div>
           </div>
 
           <div className="card" style={{ padding: '1.25rem', textAlign: 'center' }}>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>SENS. @ 90% SPEC.</div>
-            <div style={{ fontSize: typeof metrics.sensitivity_at_90_specificity === 'number' ? '2rem' : '1rem', fontWeight: 900, color: '#10b981', fontFamily: 'var(--font-heading)' }}>
-              {typeof metrics.sensitivity_at_90_specificity === 'number' ? Number(metrics.sensitivity_at_90_specificity).toFixed(4) : metrics.sensitivity_at_90_specificity}
+            <div style={{ fontSize: '2rem', fontWeight: 900, color: '#10b981', fontFamily: 'var(--font-heading)' }}>
+              {(metrics.sensitivity_at_90_specificity * 100).toFixed(2)}%
             </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
               Threshold: {metrics.threshold_at_90_specificity}
@@ -413,7 +455,7 @@ function ModelPage() {
                 <tr style={{ backgroundColor: 'rgba(4, 20, 40, 0.9)', borderBottom: '1px solid var(--border)' }}>
                   <th style={{ padding: '0.85rem 1.25rem', textAlign: 'left', color: '#ffffff' }}>Metric</th>
                   <th style={{ padding: '0.85rem 1.25rem', textAlign: 'left', color: '#ffffff' }}>Recorded Value</th>
-                  <th style={{ padding: '0.85rem 1.25rem', textAlign: 'left', color: '#ffffff' }}>Clinical Significance</th>
+                  <th style={{ padding: '0.85rem 1.25rem', textAlign: 'left', color: '#ffffff' }}>Technical Definition</th>
                 </tr>
               </thead>
               <tbody>
@@ -425,12 +467,12 @@ function ModelPage() {
                 <tr style={{ borderBottom: '1px solid rgba(13, 45, 74, 0.5)' }}>
                   <td style={{ padding: '0.85rem 1.25rem', fontWeight: 600 }}>Uncalibrated Brier Score</td>
                   <td style={{ padding: '0.85rem 1.25rem', color: '#ffffff' }}>{metrics.brier_score_uncalibrated}</td>
-                  <td style={{ padding: '0.85rem 1.25rem', color: 'var(--text-secondary)' }}>Mean squared error before Platt scaling</td>
+                  <td style={{ padding: '0.85rem 1.25rem', color: 'var(--text-secondary)' }}>Mean squared error of raw neural network probabilities</td>
                 </tr>
                 <tr style={{ borderBottom: '1px solid rgba(13, 45, 74, 0.5)' }}>
                   <td style={{ padding: '0.85rem 1.25rem', fontWeight: 600 }}>Calibrated Brier Score</td>
                   <td style={{ padding: '0.85rem 1.25rem', color: '#10b981', fontWeight: 700 }}>{metrics.brier_score_calibrated}</td>
-                  <td style={{ padding: '0.85rem 1.25rem', color: 'var(--text-secondary)' }}>Reduction in probability error post-Platt calibration</td>
+                  <td style={{ padding: '0.85rem 1.25rem', color: 'var(--text-secondary)' }}>Reduction in probability error post-Platt scaling</td>
                 </tr>
               </tbody>
             </table>
@@ -438,9 +480,9 @@ function ModelPage() {
         </div>
 
         {/* Confusion Matrix Breakdown */}
-        <div className="card" style={{ padding: '1.5rem' }}>
+        <div className="card" style={{ padding: '1.5rem', marginBottom: '2.5rem' }}>
           <h3 style={{ fontSize: '1rem', fontFamily: 'var(--font-heading)', marginBottom: '1rem' }}>
-            Test Split Confusion Matrix (N = 1,095)
+            Test Split Confusion Matrix (N = {metrics.sample_count}, Threshold = {metrics.threshold_youden})
           </h3>
           <div
             style={{
@@ -452,7 +494,7 @@ function ModelPage() {
             <div style={{ backgroundColor: 'var(--bg-input)', padding: '1rem', borderRadius: '6px' }}>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>TRUE NEGATIVES (TN)</div>
               <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--success)' }}>
-                {metrics.confusion_matrix ? metrics.confusion_matrix[0][0] : 'PENDING'}
+                {metrics.confusion_matrix[0][0]}
               </div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Correctly predicted Normal</div>
             </div>
@@ -460,15 +502,15 @@ function ModelPage() {
             <div style={{ backgroundColor: 'var(--bg-input)', padding: '1rem', borderRadius: '6px' }}>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>FALSE POSITIVES (FP)</div>
               <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--danger)' }}>
-                {metrics.confusion_matrix ? metrics.confusion_matrix[0][1] : 'PENDING'}
+                {metrics.confusion_matrix[0][1]}
               </div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Normal falsely called Abnormal</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Normal falsely flagged Abnormal</div>
             </div>
 
             <div style={{ backgroundColor: 'var(--bg-input)', padding: '1rem', borderRadius: '6px' }}>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>FALSE NEGATIVES (FN)</div>
               <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--danger)' }}>
-                {metrics.confusion_matrix ? metrics.confusion_matrix[1][0] : 'PENDING'}
+                {metrics.confusion_matrix[1][0]}
               </div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Abnormal missed as Normal</div>
             </div>
@@ -476,12 +518,80 @@ function ModelPage() {
             <div style={{ backgroundColor: 'var(--bg-input)', padding: '1rem', borderRadius: '6px' }}>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>TRUE POSITIVES (TP)</div>
               <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--success)' }}>
-                {metrics.confusion_matrix ? metrics.confusion_matrix[1][1] : 'PENDING'}
+                {metrics.confusion_matrix[1][1]}
               </div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Correctly predicted Abnormal</div>
             </div>
           </div>
         </div>
+
+        {/* SECTION: PROJECTION BREAKDOWN (PER-VIEW) */}
+        {metrics.breakdown_by_projection && (
+          <div style={{ marginBottom: '2.5rem' }}>
+            <h3 style={{ fontSize: '1.15rem', fontFamily: 'var(--font-heading)', color: '#ffffff', marginBottom: '0.75rem' }}>
+              Results Breakdown by Projection (View)
+            </h3>
+            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                <thead>
+                  <tr style={{ backgroundColor: 'rgba(4, 20, 40, 0.9)', borderBottom: '1px solid var(--border)' }}>
+                    <th style={{ padding: '0.75rem 1.25rem', textAlign: 'left', color: '#ffffff' }}>Projection</th>
+                    <th style={{ padding: '0.75rem 1.25rem', textAlign: 'left', color: '#ffffff' }}>Total Images</th>
+                    <th style={{ padding: '0.75rem 1.25rem', textAlign: 'left', color: '#ffffff' }}>Normal Count</th>
+                    <th style={{ padding: '0.75rem 1.25rem', textAlign: 'left', color: '#ffffff' }}>Abnormal Count</th>
+                    <th style={{ padding: '0.75rem 1.25rem', textAlign: 'left', color: '#ffffff' }}>ROC-AUC</th>
+                    <th style={{ padding: '0.75rem 1.25rem', textAlign: 'left', color: '#ffffff' }}>95% Bootstrap CI</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {metrics.breakdown_by_projection.map((row) => (
+                    <tr key={row.projection} style={{ borderBottom: '1px solid rgba(13, 45, 74, 0.5)' }}>
+                      <td style={{ padding: '0.75rem 1.25rem', fontWeight: 600, color: '#00d4ff' }}>{row.projection}</td>
+                      <td style={{ padding: '0.75rem 1.25rem' }}>{row.total_count}</td>
+                      <td style={{ padding: '0.75rem 1.25rem' }}>{row.normal_count}</td>
+                      <td style={{ padding: '0.75rem 1.25rem' }}>{row.abnormal_count}</td>
+                      <td style={{ padding: '0.75rem 1.25rem', fontWeight: 700, color: '#ffffff' }}>{row.roc_auc.toFixed(4)}</td>
+                      <td style={{ padding: '0.75rem 1.25rem', color: 'var(--text-secondary)' }}>[{row.ci_95.join(', ')}]</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* SECTION: FINDING BREAKDOWN */}
+        {metrics.breakdown_by_finding && (
+          <div style={{ marginBottom: '2.5rem' }}>
+            <h3 style={{ fontSize: '1.15rem', fontFamily: 'var(--font-heading)', color: '#ffffff', marginBottom: '0.75rem' }}>
+              Results Breakdown by Top 10 Finding Tokens vs Normal
+            </h3>
+            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                <thead>
+                  <tr style={{ backgroundColor: 'rgba(4, 20, 40, 0.9)', borderBottom: '1px solid var(--border)' }}>
+                    <th style={{ padding: '0.75rem 1.25rem', textAlign: 'left', color: '#ffffff' }}>Finding Token</th>
+                    <th style={{ padding: '0.75rem 1.25rem', textAlign: 'left', color: '#ffffff' }}>Abnormal Test Images</th>
+                    <th style={{ padding: '0.75rem 1.25rem', textAlign: 'left', color: '#ffffff' }}>ROC-AUC vs Normal</th>
+                    <th style={{ padding: '0.75rem 1.25rem', textAlign: 'left', color: '#ffffff' }}>Reliability Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {metrics.breakdown_by_finding.map((row) => (
+                    <tr key={row.finding} style={{ borderBottom: '1px solid rgba(13, 45, 74, 0.5)' }}>
+                      <td style={{ padding: '0.75rem 1.25rem', fontWeight: 600, color: '#ffffff' }}>{row.finding}</td>
+                      <td style={{ padding: '0.75rem 1.25rem' }}>{row.count}</td>
+                      <td style={{ padding: '0.75rem 1.25rem', fontWeight: 700, color: '#00d4ff' }}>{row.roc_auc.toFixed(4)}</td>
+                      <td style={{ padding: '0.75rem 1.25rem', color: row.trust_flag.includes('Sufficient') ? '#10b981' : '#f59e0b' }}>
+                        {row.trust_flag}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </section>
 
       {/* SECTION 3: TEXT VS IMAGE VS FUSED COMPARISON */}
@@ -494,7 +604,7 @@ function ModelPage() {
             Text vs Image vs Fused Baselines
           </h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-            Comparison documented in <code style={{ color: '#00d4ff' }}>reports/baselines.md</code>.
+            Held-out test split comparison against frozen baseline models as documented in <code style={{ color: '#00d4ff' }}>reports/comparison.md</code>.
           </p>
         </div>
 
@@ -535,7 +645,6 @@ function ModelPage() {
           </div>
         </div>
 
-        {/* Narrative Callout: Why Text Baseline is High vs Why Served Model is Image-Only */}
         <div
           style={{
             display: 'grid',
@@ -545,10 +654,10 @@ function ModelPage() {
         >
           <div className="card" style={{ padding: '1.25rem' }}>
             <h3 style={{ fontSize: '1rem', color: '#00d4ff', fontFamily: 'var(--font-heading)', marginBottom: '0.5rem' }}>
-              Why is the Text-Only Score High?
+              Why is the Text Baseline So High?
             </h3>
             <p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', lineHeight: '1.6', margin: 0 }}>
-              Indiana University disease labels (MeSH / Problems) are extracted directly from the written radiologist reports. Vocabulary in the findings text shares direct semantic correlation with target labels. Evaluating on text from the same narrative naturally yields high performance due to lexical circularity.
+              Indiana University disease labels (Problems / MeSH) were generated directly by cataloging the text radiology reports. The findings vocabulary contains explicit semantic overlap with the assigned abnormality categories. Evaluating a text model against labels extracted from that exact narrative naturally yields high scores due to lexical circularity.
             </p>
           </div>
 
@@ -557,7 +666,7 @@ function ModelPage() {
               Why is the Served Model Image-Only?
             </h3>
             <p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', lineHeight: '1.6', margin: 0 }}>
-              In real clinical practice, an official radiology report does not exist when a radiograph is acquired. An automated decision support system must analyze raw pixel data at ingestion. Requiring a report would defeat the purpose of an AI assistant, as a human radiologist would have already completed the reading.
+              In real clinical practice, an official radiology report does not exist when a radiograph is acquired. An automated decision support system must analyze raw pixel data at ingestion. Requiring an authored report would render the AI redundant, as a human clinician would already have completed the reading.
             </p>
           </div>
         </div>

@@ -23,11 +23,11 @@
 
 ## 📌 Executive Summary
 
-INSIGHT-X is an AI-powered clinical decision support system for automated chest radiograph finding classification.  
-The core vision model fine-tunes a MobileNetV2 backbone on the Indiana University Chest X-Ray dataset using patient-level group splits.  
-It deploys dual-head ONNX models for sub-100ms inference and zero-TensorFlow serving-time Grad-CAM explainability in pure NumPy.  
-Platt probability scaling eliminates neural network overconfidence, reducing test calibration error tenfold.  
-The client delivers a responsive React Progressive Web App with Firebase Authentication and Firestore clinical history logging.  
+INSIGHT-X is an academic research prototype for automated chest radiograph finding classification.  
+The vision model fine-tunes a MobileNetV2 backbone on the Indiana University Chest X-Ray collection using patient-level group splits.  
+It deploys ONNX models for low-latency inference (`insightx.onnx`, 8.51 MB) and zero-TensorFlow serving-time Grad-CAM explainability in pure NumPy (`insightx_gradcam.onnx`, 8.50 MB).  
+Platt probability scaling fitted on validation data improves probability calibration on the test split, reducing Brier score from 0.2167 to 0.1947.  
+The client delivers a responsive React Progressive Web App with Firebase Authentication and Firestore history logging.  
 
 ---
 
@@ -72,44 +72,49 @@ flowchart TD
 
 ## 📊 Empirical Evaluation & Metrics
 
-All metrics reported below will be computed on the held-out patient-level test split ($N = 1,095$ images across $564$ unique patient UIDs) and written to `reports/metrics.json` and `reports/baselines.md` after real model training on local radiographs:
+All metrics reported below were computed on the held-out patient-level test split ($N = 1,095$ images across $564$ unique patient UIDs) as recorded in `reports/metrics.json` and `reports/comparison.md`:
 
 ### Model Performance (Test Split)
 
 | Metric | Score | Specification |
 |---|---|---|
-| **Accuracy** | PENDING: filled in after real training | Standard decision threshold ($0.50$) |
-| **F1-Score** | PENDING: filled in after real training | Harmonic mean of precision & recall |
-| **ROC-AUC** | PENDING: filled in after real training | Area Under Receiver Operating Characteristic Curve |
-| **Sensitivity @ 90% Specificity** | PENDING: filled in after real training | Evaluated at threshold PENDING: filled in after real training |
-| **Brier Score (Uncalibrated)** | PENDING: filled in after real training | Mean squared probability error (raw sigmoid output) |
-| **Brier Score (Calibrated)** | PENDING: filled in after real training | Post-Platt scaling fitted on validation split |
+| **ROC-AUC** | **0.7563** | **95% Bootstrap CI: [0.7180, 0.7921]** (1,000 resamples by patient `uid`) |
+| **Accuracy** | **66.48%** (0.6648) | Validation-chosen Youden threshold ($0.6522$) |
+| **F1-Score** | **0.6697** | Harmonic mean of precision & recall (Abnormal positive) |
+| **Sensitivity** (@ Youden Threshold) | **56.45%** (0.5645) | 372 / 659 abnormal images flagged |
+| **Specificity** (@ Youden Threshold) | **81.65%** (0.8165) | 356 / 436 normal images identified |
+| **Sensitivity @ 90% Specificity** | **45.37%** (0.4537) | Operating threshold: $0.7291$ (299 / 659 abnormal flagged) |
+| **Specificity Achieved @ 90% Spec Threshold** | **87.84%** (0.8784) | 383 / 436 normal images correctly identified |
+| **Brier Score (Uncalibrated)** | **0.2167** | Raw neural network sigmoid output |
+| **Brier Score (Calibrated)** | **0.1947** | Post-Platt scaling fitted on validation split |
 
-### Confusion Matrix (Test Split)
+### Confusion Matrix (Test Split, Threshold = 0.6522)
 
-| | Predicted Normal (`0`) | Predicted Abnormal (`1`) |
+| Ground Truth \ Predicted | Predicted Normal (`0`) | Predicted Abnormal (`1`) |
 |---|---|---|
-| **Actual Normal (`0`)** | PENDING: filled in after real training (TN) | PENDING: filled in after real training (FP) |
-| **Actual Abnormal (`1`)** | PENDING: filled in after real training (FN) | PENDING: filled in after real training (TP) |
+| **Actual Normal (`0`)** | **356** (True Negative) | **80** (False Positive) |
+| **Actual Abnormal (`1`)** | **287** (False Negative) | **372** (True Positive) |
 
 ---
 
 ## 🔬 Modality Comparison: Text vs Image vs Fused
 
-Test split baseline comparison as documented in `reports/baselines.md`:
+Test split baseline comparison as documented in `reports/comparison.md` and `reports/baselines.json`:
 
 | Modality / Baseline Model | Accuracy | F1-Score | ROC-AUC |
 |---|---|---|---|
-| **Text-Only (Findings TF-IDF, 1,000 features)** | PENDING: filled in after real training | PENDING: filled in after real training | PENDING: filled in after real training |
-| **Image-Only (MobileNetV2 GAP Features)** | PENDING: filled in after real training | PENDING: filled in after real training | PENDING: filled in after real training |
-| **Fused (Image + Text Concatenation)** | PENDING: filled in after real training | PENDING: filled in after real training | PENDING: filled in after real training |
+| **Majority Class Baseline** | 60.18% | 0.7514 | 0.5000 |
+| **Frozen MobileNetV2 GAP** (C=0.01) | 64.84% | 0.6980 | 0.7182 |
+| **Text-Only (Findings TF-IDF, 1,000 features)** | 90.68% | 0.9257 | 0.9676 |
+| **Fused (Image + Text Concatenation)** | 89.50% | 0.9119 | 0.9629 |
+| **Fine-Tuned MobileNetV2 (Served Model)** | **66.48%** | **0.6697** | **0.7563** |
 
-### Why the Text Baseline Scores High
-The Indiana University disease annotations (`Problems` / MeSH terms) were extracted directly from the written radiology reports by clinical catalogers. As a result, tokens in the `findings` narrative share direct lexical and semantic overlap with the assigned abnormality categories. Evaluating a text model against labels extracted from that exact narrative naturally yields high performance due to label circularity.
+### Why the Text Baseline Scores High (Label Leakage)
+The Indiana University disease annotations (`Problems` / MeSH terms) were extracted directly from the written radiology reports by clinical catalogers. As a result, tokens in the `findings` narrative share direct lexical and semantic overlap with the assigned abnormality categories. Evaluating a text model against labels extracted from that exact narrative yields artificially high performance due to label circularity.
 
-### Why the Production System is Image-Only
+### Why the Served System is Image-Only
 In actual hospital intake workflows, an official radiology report **does not exist at scan acquisition time**:
-1. An automated pre-read decision support tool must analyze raw radiograph pixel data immediately after acquisition.
+1. An automated decision support tool must analyze raw radiograph pixel data immediately after acquisition.
 2. Requiring an authored radiologist report at inference time would render the AI redundant, as a human clinician would already have completed the diagnostic reading.
 3. Therefore, InsightX serving is strictly **image-only**, taking chest radiographs as input to produce classifications and Grad-CAM attention overlays.
 
@@ -169,5 +174,9 @@ docker run -p 7860:7860 \
 
 ## 📄 License & Attribution
 
-This project is open-source under the [MIT License](LICENSE).  
-Chest radiograph data is sourced from the [Indiana University Chest X-ray Collection](https://openi.nlm.nih.gov/) (OpenI / NLM).
+This project is open-source under the [MIT License](LICENSE).
+
+### Dataset Attribution
+Chest radiograph images and radiology reports are sourced from the **Indiana University Chest X-ray Collection** (Demner-Fushman et al., 2016, accessed via the NLM Open-i service).
+- **Citation**: Demner-Fushman D, Kohli MD, Rosenman MB, Shooshan SE, Rodriguez L, Antani S, Thoma GR, McDonald CJ. *Preparing a collection of radiology examinations for distribution and retrieval*. Journal of the American Medical Informatics Association (JAMIA), 2016 Mar;23(2):304-310. doi:10.1093/jamia/ocv080.
+- **Provider**: U.S. National Library of Medicine (NLM), National Institutes of Health, Open-i service.
