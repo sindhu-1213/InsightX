@@ -86,3 +86,4 @@ desktop.ini
 !samples/*.png
 !reports/*.png
 !reports/gradcam_examples/*.png
+!web/public/*.png
