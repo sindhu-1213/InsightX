@@ -51,7 +51,13 @@ function HistoryPage() {
 
   const filteredItems = analyses.filter((item) => {
     if (filter === 'ALL') return true;
-    return (item.label || '').toUpperCase() === filter;
+    if (filter === 'ABNORMAL') {
+      return item.finding === 'Possible abnormal finding';
+    }
+    if (filter === 'NORMAL') {
+      return item.finding === 'No abnormal finding flagged';
+    }
+    return true;
   });
 
   const formatDate = (val) => {
@@ -180,9 +186,9 @@ function HistoryPage() {
               <thead>
                 <tr style={{ backgroundColor: 'rgba(4, 20, 40, 0.9)', borderBottom: '1px solid var(--border)' }}>
                   <th style={{ padding: '1rem 1.25rem', color: '#ffffff', fontFamily: 'var(--font-heading)' }}>Record ID</th>
-                  <th style={{ padding: '1rem 1.25rem', color: '#ffffff', fontFamily: 'var(--font-heading)' }}>Classification</th>
+                  <th style={{ padding: '1rem 1.25rem', color: '#ffffff', fontFamily: 'var(--font-heading)' }}>Finding</th>
                   <th style={{ padding: '1rem 1.25rem', color: '#ffffff', fontFamily: 'var(--font-heading)' }}>Calibrated Probability</th>
-                  <th style={{ padding: '1rem 1.25rem', color: '#ffffff', fontFamily: 'var(--font-heading)' }}>Cluster</th>
+                  <th style={{ padding: '1rem 1.25rem', color: '#ffffff', fontFamily: 'var(--font-heading)' }}>Source</th>
                   <th style={{ padding: '1rem 1.25rem', color: '#ffffff', fontFamily: 'var(--font-heading)' }}>Model Version</th>
                   <th style={{ padding: '1rem 1.25rem', color: '#ffffff', fontFamily: 'var(--font-heading)' }}>Logged At</th>
                 </tr>
@@ -190,6 +196,7 @@ function HistoryPage() {
               <tbody>
                 {filteredItems.map((row, idx) => {
                   const prob = typeof row.probability === 'number' ? row.probability : 0;
+                  const isAbnormal = row.finding === 'Possible abnormal finding';
                   return (
                     <tr
                       key={row.id}
@@ -205,20 +212,30 @@ function HistoryPage() {
                         <span
                           className="badge-cyan"
                           style={{
-                            backgroundColor:
-                              row.label === 'Normal' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                            color: row.label === 'Normal' ? 'var(--success)' : 'var(--danger)',
-                            borderColor: row.label === 'Normal' ? 'var(--success)' : 'var(--danger)'
+                            backgroundColor: isAbnormal ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                            color: isAbnormal ? 'var(--danger)' : 'var(--success)',
+                            borderColor: isAbnormal ? 'var(--danger)' : 'var(--success)'
                           }}
                         >
-                          {row.label}
+                          {row.finding || 'Unknown'}
                         </span>
                       </td>
                       <td style={{ padding: '1rem 1.25rem', fontWeight: 600, color: '#ffffff' }}>
                         {(prob * 100).toFixed(1)}%
                       </td>
-                      <td style={{ padding: '1rem 1.25rem', color: 'var(--text-secondary)' }}>
-                        Cluster #{row.cluster ?? 0}
+                      <td style={{ padding: '1rem 1.25rem' }}>
+                        <span
+                          style={{
+                            padding: '0.2rem 0.5rem',
+                            borderRadius: '4px',
+                            fontSize: '0.8rem',
+                            backgroundColor: row.source === 'sample' ? 'rgba(0, 212, 255, 0.1)' : 'rgba(147, 51, 234, 0.1)',
+                            color: row.source === 'sample' ? 'var(--cyan)' : '#c084fc',
+                            border: `1px solid ${row.source === 'sample' ? 'rgba(0, 212, 255, 0.3)' : 'rgba(147, 51, 234, 0.3)'}`
+                          }}
+                        >
+                          {row.source === 'sample' ? 'Sample' : 'Upload'}
+                        </span>
                       </td>
                       <td style={{ padding: '1rem 1.25rem', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
                         {row.modelVersion}

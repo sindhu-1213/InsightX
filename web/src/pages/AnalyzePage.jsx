@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { collection, addDoc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import {
   ResponsiveContainer,
   BarChart,
@@ -13,6 +13,7 @@ import {
 } from 'recharts';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
+import { buildAnalysisRecord } from '../utils/payloadBuilders';
 import {
   UploadCloud,
   Camera,
@@ -328,6 +329,24 @@ function AnalyzePage() {
       }
       const data = await res.json();
       setResult(data);
+
+      // If practitioner is signed in with verified email, log sample analysis
+      if (currentUser && currentUser.emailVerified) {
+        try {
+          const analysesRef = collection(db, 'users', currentUser.uid, 'analyses');
+          const record = buildAnalysisRecord({
+            finding: data.finding || data.finding_label || (data.label === 'Abnormal' ? 'Possible abnormal finding' : 'No abnormal finding flagged'),
+            probability: Number(data.calibrated_probability),
+            modelVersion: data.model_version || '1.0.0',
+            source: 'sample',
+            createdAt: serverTimestamp()
+          });
+          await addDoc(analysesRef, record);
+          setSavedStatus('Sample demonstration recorded to your practitioner audit log in Firestore.');
+        } catch (firestoreErr) {
+          console.warn('Firestore write note:', firestoreErr.message);
+        }
+      }
     } catch (err) {
       console.warn('Sample API call failed, providing demonstration fallback:', err);
       // Fallback demo result so judges/testers can always see full dashboard
@@ -335,10 +354,10 @@ function AnalyzePage() {
         const isAb = sample.expectedLabel === 'Abnormal';
         setResult({
           label: isAb ? 'Abnormal' : 'Normal',
+          finding: isAb ? 'Possible abnormal finding' : 'No abnormal finding flagged',
           prediction_code: isAb ? 1 : 0,
           calibrated_probability: isAb ? 0.748 : 0.162,
           uncalibrated_probability: isAb ? 0.71 : 0.19,
-          cluster: isAb ? 2 : 0,
           model_version: '1.0.0',
           gradcam_overlay: null,
           disclaimer:
@@ -401,13 +420,14 @@ function AnalyzePage() {
       // Security rules strictly forbid image data and allow only specified fields
       try {
         const analysesRef = collection(db, 'users', currentUser.uid, 'analyses');
-        await addDoc(analysesRef, {
-          label: data.label,
+        const record = buildAnalysisRecord({
+          finding: data.finding || data.finding_label || (data.label === 'Abnormal' ? 'Possible abnormal finding' : 'No abnormal finding flagged'),
           probability: Number(data.calibrated_probability),
-          cluster: Number(data.cluster ?? data.prediction_code ?? 0),
           modelVersion: data.model_version || '1.0.0',
-          createdAt: new Date().toISOString()
+          source: 'upload',
+          createdAt: serverTimestamp()
         });
+        await addDoc(analysesRef, record);
         setSavedStatus('Analysis recorded to your practitioner audit log in Firestore.');
       } catch (firestoreErr) {
         console.warn('Firestore write note:', firestoreErr.message);

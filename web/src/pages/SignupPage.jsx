@@ -46,7 +46,7 @@ function SignupPage() {
       await signup(formData.email, formData.password, {
         displayName: formData.displayName,
         role: formData.role,
-        institution: formData.institution || 'Independent Practitioner'
+        institution: formData.institution ? formData.institution.trim() : ''
       });
       navigate('/verify-email', { replace: true });
     } catch (err) {
@@ -60,7 +60,7 @@ function SignupPage() {
     setError(null);
     setGoogleLoading(true);
     try {
-      await signInWithGoogle(formData.role, formData.institution || 'Independent Practitioner');
+      await signInWithGoogle(formData.role, formData.institution ? formData.institution.trim() : '');
       navigate('/analyze', { replace: true });
     } catch (err) {
       setError(getFriendlyAuthErrorMessage(err));

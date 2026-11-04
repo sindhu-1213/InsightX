@@ -18,6 +18,7 @@ import {
   signInWithPopup,
   signInWithRedirect
 } from '../firebase';
+import { buildUserProfile } from '../utils/payloadBuilders';
 
 const AuthContext = createContext(null);
 
@@ -96,11 +97,10 @@ export function AuthProvider({ children }) {
           const userDocRef = doc(db, 'users', u.uid);
           const snap = await getDoc(userDocRef).catch(() => null);
           if (!snap || !snap.exists()) {
-            const initialProfile = {
-              displayName: (u.displayName || 'Practitioner').slice(0, 99),
-              role: 'Doctor',
-              institution: 'Independent Practitioner'
-            };
+            const initialProfile = buildUserProfile({
+              displayName: u.displayName || 'Practitioner',
+              role: 'Doctor'
+            });
             await setDoc(userDocRef, initialProfile).catch(() => {});
             setUserProfile(initialProfile);
           }
@@ -127,15 +127,8 @@ export function AuthProvider({ children }) {
     const res = await createUserWithEmailAndPassword(auth, email, password);
     const user = res.user;
 
-    const trimmedName = (displayName || 'Practitioner').trim().slice(0, 99);
-    const validRole = ['Doctor', 'Staff', 'Student'].includes(role) ? role : 'Doctor';
-    const trimmedInst = (institution || 'Independent Practitioner').trim().slice(0, 99);
-
-    const profileData = {
-      displayName: trimmedName,
-      role: validRole,
-      institution: trimmedInst
-    };
+    const profileData = buildUserProfile({ displayName, role, institution });
+    const trimmedName = profileData.displayName;
 
     // Update Firebase Auth profile
     try {
@@ -185,11 +178,11 @@ export function AuthProvider({ children }) {
     try {
       const snap = await getDoc(userDocRef);
       if (!snap.exists()) {
-        const profileData = {
-          displayName: (u.displayName || 'Practitioner').slice(0, 99),
-          role: ['Doctor', 'Staff', 'Student'].includes(role) ? role : 'Doctor',
-          institution: (institution || 'Independent Practitioner').slice(0, 99)
-        };
+        const profileData = buildUserProfile({
+          displayName: u.displayName || 'Practitioner',
+          role,
+          institution
+        });
         await setDoc(userDocRef, profileData);
         setUserProfile(profileData);
       } else {
