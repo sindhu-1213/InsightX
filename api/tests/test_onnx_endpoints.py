@@ -177,3 +177,30 @@ def test_post_predict_overdimension_image_rejected(mock_verify):
     )
     assert response.status_code == 400
     assert "4096" in response.json()["detail"]
+
+
+@patch("api.main.auth.verify_id_token")
+def test_gradcam_overlay_aspect_crop_and_max_dimension(mock_verify):
+    """Verify Grad-CAM overlay preserves non-square aspect ratio and respects 1024px cap."""
+    import base64
+    mock_verify.return_value = MOCK_VERIFIED_USER
+
+    # 1200x600 non-square image (aspect ratio 2:1)
+    wide_img = Image.new("RGB", (1200, 600), color=(128, 128, 128))
+    buf = io.BytesIO()
+    wide_img.save(buf, format="PNG")
+
+    response = client.post(
+        "/predict",
+        headers={"Authorization": "Bearer valid_token"},
+        files={"file": ("wide.png", buf.getvalue(), "image/png")},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "gradcam_overlay" in data
+    assert data["gradcam_overlay"].startswith("data:image/png;base64,")
+
+    # Decode overlay image and verify dimension cap (1024x512)
+    b64_data = data["gradcam_overlay"].split(",")[1]
+    overlay_img = Image.open(io.BytesIO(base64.b64decode(b64_data)))
+    assert overlay_img.size == (1024, 512)

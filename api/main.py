@@ -414,15 +414,40 @@ def _compute_numpy_cam_overlay(
         cam = cam / (max_val + 1e-10)
 
     w, h = image.size
+    scale = min(224.0 / w, 224.0 / h)
+    new_w = max(1, int(round(w * scale)))
+    new_h = max(1, int(round(h * scale)))
+    paste_x = (224 - new_w) // 2
+    paste_y = (224 - new_h) // 2
+
     cam_uint8 = np.uint8(np.clip(cam * 255.0, 0, 255))
+    # Resize 7x7 CAM to full 224x224 padded canvas, then crop un-padded content region
+    cam_canvas = Image.fromarray(cam_uint8).resize((224, 224), Image.Resampling.BILINEAR)
+    cam_cropped = cam_canvas.crop((paste_x, paste_y, paste_x + new_w, paste_y + new_h))
+
+    # Cap overlay dimensions to maximum 1024px on longest side
+    max_overlay_dim = 1024
+    if max(w, h) > max_overlay_dim:
+        if w >= h:
+            overlay_w = max_overlay_dim
+            overlay_h = max(1, int(round(h * max_overlay_dim / w)))
+        else:
+            overlay_h = max_overlay_dim
+            overlay_w = max(1, int(round(w * max_overlay_dim / h)))
+    else:
+        overlay_w, overlay_h = w, h
+
     cam_resized = np.array(
-        Image.fromarray(cam_uint8).resize((w, h), Image.Resampling.BILINEAR)
+        cam_cropped.resize((overlay_w, overlay_h), Image.Resampling.BILINEAR)
     ) / 255.0
 
     cmap = plt.get_cmap("jet")
     colored_heatmap = cmap(cam_resized)[..., :3]
 
-    orig_rgb = np.asarray(image.convert("RGB"), dtype=np.float32) / 255.0
+    base_img = image.convert("RGB")
+    if base_img.size != (overlay_w, overlay_h):
+        base_img = base_img.resize((overlay_w, overlay_h), Image.Resampling.BILINEAR)
+    orig_rgb = np.asarray(base_img, dtype=np.float32) / 255.0
     blended = (1.0 - alpha) * orig_rgb + alpha * colored_heatmap
     overlay_uint8 = np.uint8(np.clip(blended * 255.0, 0, 255))
 
