@@ -4,8 +4,8 @@
  * Verifies:
  * - Only signed-in users with a verified email can read/write their own data.
  * - Complete denial of access to other users' data.
- * - Strict schema validation on users/{uid} (displayName, role in [Doctor, Staff, Student], institution < 100 chars).
- * - Strict schema validation on analyses/{id} (label, probability in [0, 1], cluster, modelVersion, createdAt).
+ * - Strict schema validation on users/{uid} (displayName required < 100 chars, role in [Doctor, Staff, Student], institution optional < 100 chars).
+ * - Strict schema validation on analyses/{id} (finding in ['Possible abnormal finding', 'No abnormal finding flagged'], probability in [0, 1], modelVersion, source in ['upload', 'sample'], createdAt).
  * - Immutability: analyses documents cannot be updated after creation.
  */
 
@@ -14,9 +14,22 @@ const {
   assertFails,
   assertSucceeds,
 } = require("@firebase/rules-unit-testing");
-const { doc, getDoc, setDoc, updateDoc } = require("firebase/firestore");
+const assert = require("assert");
+const {
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  Timestamp,
+  serverTimestamp,
+} = require("firebase/firestore");
 const fs = require("fs");
 const path = require("path");
+const {
+  buildUserProfile,
+  buildAnalysisRecord,
+} = require("../../web/src/utils/payloadBuilders.cjs");
 
 const PROJECT_ID = "insightx-test";
 const RULES_PATH = path.resolve(__dirname, "../../firestore.rules");
@@ -210,10 +223,10 @@ describe("InsightX Firestore Security Rules", function () {
 
       await assertSucceeds(
         setDoc(analysisRef, {
-          label: "Normal",
+          finding: "No abnormal finding flagged",
           probability: 0.0821,
-          cluster: 0,
           modelVersion: "1.0.0",
+          source: "upload",
           createdAt: new Date().toISOString(),
         })
       );
@@ -227,10 +240,10 @@ describe("InsightX Firestore Security Rules", function () {
       // 1. Create is allowed
       await assertSucceeds(
         setDoc(analysisRef, {
-          label: "Abnormal",
+          finding: "Possible abnormal finding",
           probability: 0.9412,
-          cluster: 1,
           modelVersion: "1.0.0",
+          source: "upload",
           createdAt: new Date().toISOString(),
         })
       );
@@ -238,7 +251,7 @@ describe("InsightX Firestore Security Rules", function () {
       // 2. Update is strictly denied
       await assertFails(
         updateDoc(analysisRef, {
-          label: "Normal",
+          finding: "No abnormal finding flagged",
           probability: 0.12,
         })
       );
@@ -251,35 +264,35 @@ describe("InsightX Firestore Security Rules", function () {
 
       await assertFails(
         setDoc(refHigh, {
-          label: "Abnormal",
+          finding: "Possible abnormal finding",
           probability: 1.5,
-          cluster: 0,
           modelVersion: "1.0.0",
+          source: "upload",
           createdAt: new Date().toISOString(),
         })
       );
 
       await assertFails(
         setDoc(refLow, {
-          label: "Normal",
+          finding: "No abnormal finding flagged",
           probability: -0.1,
-          cluster: 0,
           modelVersion: "1.0.0",
+          source: "upload",
           createdAt: new Date().toISOString(),
         })
       );
     });
 
-    it("denies invalid labels (must be Normal or Abnormal)", async () => {
+    it("denies invalid finding values (must be 'Possible abnormal finding' or 'No abnormal finding flagged')", async () => {
       const db = getAuthedDb("doctor_uid", true);
-      const analysisRef = doc(db, "users/doctor_uid/analyses/analysis_bad_label");
+      const analysisRef = doc(db, "users/doctor_uid/analyses/analysis_bad_finding");
 
       await assertFails(
         setDoc(analysisRef, {
-          label: "Pneumonia",
+          finding: "Pneumonia",
           probability: 0.85,
-          cluster: 0,
           modelVersion: "1.0.0",
+          source: "upload",
           createdAt: new Date().toISOString(),
         })
       );
@@ -291,10 +304,10 @@ describe("InsightX Firestore Security Rules", function () {
 
       await assertFails(
         setDoc(analysisRef, {
-          label: "Normal",
+          finding: "No abnormal finding flagged",
           probability: 0.05,
-          cluster: 0,
           modelVersion: "1.0.0",
+          source: "upload",
           createdAt: new Date().toISOString(),
           diagnosisNotes: "Patient has cough",
         })
@@ -307,10 +320,10 @@ describe("InsightX Firestore Security Rules", function () {
 
       await assertSucceeds(
         setDoc(doc(aliceDb, "users/alice/analyses/ana_1"), {
-          label: "Normal",
+          finding: "No abnormal finding flagged",
           probability: 0.05,
-          cluster: 0,
           modelVersion: "1.0.0",
+          source: "upload",
           createdAt: new Date().toISOString(),
         })
       );
@@ -318,10 +331,437 @@ describe("InsightX Firestore Security Rules", function () {
       await assertFails(getDoc(doc(bobDb, "users/alice/analyses/ana_1")));
       await assertFails(
         setDoc(doc(bobDb, "users/alice/analyses/ana_1"), {
-          label: "Abnormal",
+          finding: "Possible abnormal finding",
           probability: 0.99,
-          cluster: 1,
           modelVersion: "1.0.0",
+          source: "upload",
+          createdAt: new Date().toISOString(),
+        })
+      );
+    });
+
+    it("denies signed-out user on analyses subcollection and unlisted paths", async () => {
+      const db = getUnauthedDb();
+      // Analyses subcollection
+      await assertFails(getDoc(doc(db, "users/user_123/analyses/ana_1")));
+      await assertFails(
+        setDoc(doc(db, "users/user_123/analyses/ana_1"), {
+          finding: "No abnormal finding flagged",
+          probability: 0.1,
+          modelVersion: "1.0.0",
+          source: "upload",
+          createdAt: new Date().toISOString(),
+        })
+      );
+      await assertFails(deleteDoc(doc(db, "users/user_123/analyses/ana_1")));
+
+      // Unlisted arbitrary path
+      await assertFails(getDoc(doc(db, "anything/else")));
+      await assertFails(setDoc(doc(db, "anything/else"), { data: "test" }));
+    });
+
+    it("denies signed-in unverified user on analyses and unlisted paths", async () => {
+      const db = getAuthedDb("user_unverified", false);
+      // Analyses subcollection
+      await assertFails(getDoc(doc(db, "users/user_unverified/analyses/ana_1")));
+      await assertFails(
+        setDoc(doc(db, "users/user_unverified/analyses/ana_1"), {
+          finding: "No abnormal finding flagged",
+          probability: 0.1,
+          modelVersion: "1.0.0",
+          source: "upload",
+          createdAt: new Date().toISOString(),
+        })
+      );
+      await assertFails(deleteDoc(doc(db, "users/user_unverified/analyses/ana_1")));
+
+      // Unlisted arbitrary path
+      await assertFails(getDoc(doc(db, "anything/else")));
+      await assertFails(setDoc(doc(db, "anything/else"), { data: "test" }));
+    });
+
+    it("denies user A deleting user B's profile or analyses", async () => {
+      const aliceDb = getAuthedDb("alice", true);
+      const bobDb = getAuthedDb("bob", true);
+
+      // Alice creates profile and analysis
+      await assertSucceeds(
+        setDoc(doc(aliceDb, "users/alice"), {
+          displayName: "Dr. Alice",
+          role: "Doctor",
+          institution: "Hospital A",
+        })
+      );
+      await assertSucceeds(
+        setDoc(doc(aliceDb, "users/alice/analyses/ana_1"), {
+          finding: "No abnormal finding flagged",
+          probability: 0.05,
+          modelVersion: "1.0.0",
+          source: "upload",
+          createdAt: new Date().toISOString(),
+        })
+      );
+
+      // Bob cannot delete Alice's profile or analysis
+      await assertFails(deleteDoc(doc(bobDb, "users/alice")));
+      await assertFails(deleteDoc(doc(bobDb, "users/alice/analyses/ana_1")));
+    });
+
+    it("denies verified users accessing any unlisted path (default deny)", async () => {
+      const db = getAuthedDb("doctor_user", true);
+
+      await assertFails(getDoc(doc(db, "anything/else")));
+      await assertFails(setDoc(doc(db, "anything/else"), { key: "value" }));
+      await assertFails(getDoc(doc(db, "audit_logs/log_001")));
+      await assertFails(setDoc(doc(db, "audit_logs/log_001"), { action: "login" }));
+    });
+
+    it("rejects wrong types and empty displayName for users/{uid} fields", async () => {
+      const db = getAuthedDb("user_type_checks", true);
+      const userRef = doc(db, "users/user_type_checks");
+
+      // Wrong type for displayName (number)
+      await assertFails(
+        setDoc(userRef, {
+          displayName: 12345,
+          role: "Doctor",
+          institution: "Hospital",
+        })
+      );
+
+      // Wrong type for role (boolean or number)
+      await assertFails(
+        setDoc(userRef, {
+          displayName: "Dr. Test",
+          role: 99,
+          institution: "Hospital",
+        })
+      );
+
+      // Wrong type for institution (array)
+      await assertFails(
+        setDoc(userRef, {
+          displayName: "Dr. Test",
+          role: "Doctor",
+          institution: ["Hospital"],
+        })
+      );
+
+      // Empty string for displayName
+      await assertFails(
+        setDoc(userRef, {
+          displayName: "",
+          role: "Doctor",
+          institution: "Hospital",
+        })
+      );
+
+      // Missing required field (e.g. missing role)
+      await assertFails(
+        setDoc(userRef, {
+          displayName: "Dr. Test",
+          institution: "Hospital",
+        })
+      );
+    });
+
+    it("rejects extra image data fields in analyses documents", async () => {
+      const db = getAuthedDb("doctor_uid", true);
+
+      // Rejects imageData field
+      await assertFails(
+        setDoc(doc(db, "users/doctor_uid/analyses/ana_img1"), {
+          finding: "No abnormal finding flagged",
+          probability: 0.1,
+          modelVersion: "1.0.0",
+          source: "upload",
+          createdAt: new Date().toISOString(),
+          imageData: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
+        })
+      );
+
+      // Rejects rawImage field
+      await assertFails(
+        setDoc(doc(db, "users/doctor_uid/analyses/ana_img2"), {
+          finding: "Possible abnormal finding",
+          probability: 0.9,
+          modelVersion: "1.0.0",
+          source: "upload",
+          createdAt: new Date().toISOString(),
+          rawImage: "base64encodedbytes",
+        })
+      );
+    });
+
+    it("rejects wrong types and missing fields in analyses documents", async () => {
+      const db = getAuthedDb("doctor_uid", true);
+
+      // probability as string instead of number
+      await assertFails(
+        setDoc(doc(db, "users/doctor_uid/analyses/ana_bad_prob_type"), {
+          finding: "No abnormal finding flagged",
+          probability: "0.5",
+          modelVersion: "1.0.0",
+          source: "upload",
+          createdAt: new Date().toISOString(),
+        })
+      );
+
+      // finding as number instead of string
+      await assertFails(
+        setDoc(doc(db, "users/doctor_uid/analyses/ana_bad_finding_type"), {
+          finding: 1,
+          probability: 0.5,
+          modelVersion: "1.0.0",
+          source: "upload",
+          createdAt: new Date().toISOString(),
+        })
+      );
+
+      // source as invalid value
+      await assertFails(
+        setDoc(doc(db, "users/doctor_uid/analyses/ana_bad_source_type"), {
+          finding: "No abnormal finding flagged",
+          probability: 0.5,
+          modelVersion: "1.0.0",
+          source: "invalid_source",
+          createdAt: new Date().toISOString(),
+        })
+      );
+
+      // modelVersion >= 100 characters
+      await assertFails(
+        setDoc(doc(db, "users/doctor_uid/analyses/ana_long_model_version"), {
+          finding: "No abnormal finding flagged",
+          probability: 0.5,
+          modelVersion: "V".repeat(101),
+          source: "upload",
+          createdAt: new Date().toISOString(),
+        })
+      );
+
+      // Missing modelVersion
+      await assertFails(
+        setDoc(doc(db, "users/doctor_uid/analyses/ana_missing_field"), {
+          finding: "No abnormal finding flagged",
+          probability: 0.5,
+          source: "upload",
+          createdAt: new Date().toISOString(),
+        })
+      );
+    });
+
+    it("allows a verified user to delete their own analyses", async () => {
+      const db = getAuthedDb("doctor_uid", true);
+      const analysisRef = doc(db, "users/doctor_uid/analyses/analysis_to_delete");
+
+      // 1. Create analysis
+      await assertSucceeds(
+        setDoc(analysisRef, {
+          finding: "No abnormal finding flagged",
+          probability: 0.15,
+          modelVersion: "1.0.0",
+          source: "upload",
+          createdAt: new Date().toISOString(),
+        })
+      );
+
+      // 2. Delete analysis
+      await assertSucceeds(deleteDoc(analysisRef));
+
+      // 3. Confirm deletion
+      const snap = await getDoc(analysisRef);
+      if (snap.exists()) {
+        throw new Error("Expected document to be deleted");
+      }
+    });
+
+    it("allows createdAt with serverTimestamp() and current Timestamp", async () => {
+      const db = getAuthedDb("doctor_uid", true);
+
+      // serverTimestamp()
+      await assertSucceeds(
+        setDoc(doc(db, "users/doctor_uid/analyses/ana_server_ts"), {
+          finding: "No abnormal finding flagged",
+          probability: 0.2,
+          modelVersion: "1.0.0",
+          source: "upload",
+          createdAt: serverTimestamp(),
+        })
+      );
+
+      // Timestamp.now()
+      await assertSucceeds(
+        setDoc(doc(db, "users/doctor_uid/analyses/ana_now_ts"), {
+          finding: "Possible abnormal finding",
+          probability: 0.8,
+          modelVersion: "1.0.0",
+          source: "sample",
+          createdAt: Timestamp.now(),
+        })
+      );
+    });
+
+    it("rejects createdAt timestamps far in the past or far in the future", async () => {
+      const db = getAuthedDb("doctor_uid", true);
+
+      // 1 day in the past (Timestamp)
+      const pastTs = Timestamp.fromDate(new Date(Date.now() - 24 * 60 * 60 * 1000));
+      await assertFails(
+        setDoc(doc(db, "users/doctor_uid/analyses/ana_past_ts"), {
+          finding: "No abnormal finding flagged",
+          probability: 0.2,
+          modelVersion: "1.0.0",
+          source: "upload",
+          createdAt: pastTs,
+        })
+      );
+
+      // 1 day in the future (Timestamp)
+      const futureTs = Timestamp.fromDate(new Date(Date.now() + 24 * 60 * 60 * 1000));
+      await assertFails(
+        setDoc(doc(db, "users/doctor_uid/analyses/ana_future_ts"), {
+          finding: "No abnormal finding flagged",
+          probability: 0.2,
+          modelVersion: "1.0.0",
+          source: "upload",
+          createdAt: futureTs,
+        })
+      );
+
+      // ISO string far in the past (year 2020)
+      await assertFails(
+        setDoc(doc(db, "users/doctor_uid/analyses/ana_past_str"), {
+          finding: "No abnormal finding flagged",
+          probability: 0.2,
+          modelVersion: "1.0.0",
+          source: "upload",
+          createdAt: "2020-01-01T00:00:00.000Z",
+        })
+      );
+
+      // ISO string far in the future (year 2035)
+      await assertFails(
+        setDoc(doc(db, "users/doctor_uid/analyses/ana_future_str"), {
+          finding: "No abnormal finding flagged",
+          probability: 0.2,
+          modelVersion: "1.0.0",
+          source: "upload",
+          createdAt: "2035-01-01T00:00:00.000Z",
+        })
+      );
+
+      // Invalid non-date string
+      await assertFails(
+        setDoc(doc(db, "users/doctor_uid/analyses/ana_invalid_str"), {
+          finding: "No abnormal finding flagged",
+          probability: 0.2,
+          modelVersion: "1.0.0",
+          source: "upload",
+          createdAt: "not-a-timestamp",
+        })
+      );
+
+      // Invalid type for createdAt (number)
+      await assertFails(
+        setDoc(doc(db, "users/doctor_uid/analyses/ana_num_created"), {
+          finding: "No abnormal finding flagged",
+          probability: 0.2,
+          modelVersion: "1.0.0",
+          source: "upload",
+          createdAt: Date.now(),
+        })
+      );
+    });
+
+    // -------------------------------------------------------------------------
+    // 8. Integration with Shared Web Payload Builders
+    // -------------------------------------------------------------------------
+
+    it("allows signup profile without institution using buildUserProfile", async () => {
+      const db = getAuthedDb("user_no_inst", true);
+      const payload = buildUserProfile({
+        displayName: "Dr. Gregory House",
+        role: "Doctor",
+      });
+      // Verify payload has no institution key
+      if ("institution" in payload) {
+        throw new Error("Expected buildUserProfile without institution to omit key");
+      }
+      await assertSucceeds(setDoc(doc(db, "users/user_no_inst"), payload));
+    });
+
+    it("allows signup profile with empty institution using buildUserProfile", async () => {
+      const db = getAuthedDb("user_empty_inst", true);
+      const payload = buildUserProfile({
+        displayName: "Dr. James Wilson",
+        role: "Doctor",
+        institution: "",
+      });
+      await assertSucceeds(setDoc(doc(db, "users/user_empty_inst"), payload));
+    });
+
+    it("allows signup profile with institution using buildUserProfile", async () => {
+      const db = getAuthedDb("user_with_inst", true);
+      const payload = buildUserProfile({
+        displayName: "Dr. Lisa Cuddy",
+        role: "Doctor",
+        institution: "Princeton-Plainsboro Teaching Hospital",
+      });
+      await assertSucceeds(setDoc(doc(db, "users/user_with_inst"), payload));
+    });
+
+    it("allows analysis from an upload using buildAnalysisRecord with default createdAt", async () => {
+      const db = getAuthedDb("doc_upload_user", true);
+      const payload = buildAnalysisRecord({
+        finding: "Possible abnormal finding",
+        probability: 0.874,
+        modelVersion: "1.0.0",
+        source: "upload",
+      });
+      assert.ok(payload.createdAt, "createdAt must be populated by builder default");
+      await assertSucceeds(
+        setDoc(doc(db, "users/doc_upload_user/analyses/rec_upload"), payload)
+      );
+    });
+
+    it("allows analysis from a sample using buildAnalysisRecord with default createdAt", async () => {
+      const db = getAuthedDb("doc_sample_user", true);
+      const payload = buildAnalysisRecord({
+        finding: "No abnormal finding flagged",
+        probability: 0.142,
+        modelVersion: "1.0.0",
+        source: "sample",
+      });
+      assert.ok(payload.createdAt, "createdAt must be populated by builder default");
+      await assertSucceeds(
+        setDoc(doc(db, "users/doc_sample_user/analyses/rec_sample"), payload)
+      );
+    });
+
+    it("rejects an analysis written with the old 'cluster' field", async () => {
+      const db = getAuthedDb("doctor_uid", true);
+      await assertFails(
+        setDoc(doc(db, "users/doctor_uid/analyses/ana_with_cluster"), {
+          finding: "Possible abnormal finding",
+          probability: 0.85,
+          modelVersion: "1.0.0",
+          source: "upload",
+          cluster: 2,
+          createdAt: new Date().toISOString(),
+        })
+      );
+    });
+
+    it("rejects an analysis written with the old 'label' field", async () => {
+      const db = getAuthedDb("doctor_uid", true);
+      await assertFails(
+        setDoc(doc(db, "users/doctor_uid/analyses/ana_with_label"), {
+          finding: "Possible abnormal finding",
+          probability: 0.85,
+          modelVersion: "1.0.0",
+          source: "upload",
+          label: "Abnormal",
           createdAt: new Date().toISOString(),
         })
       );
