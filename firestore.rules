@@ -15,34 +15,54 @@ service cloud.firestore {
       return isEmailVerified() && request.auth.uid == uid;
     }
 
-    // Validation for users/{uid} profile documents
-    // Accepts only displayName, role (one of Doctor, Staff, Student), and institution as strings under 100 characters
+    // Validation for users/{uid} profile documents:
+    // - displayName: required non-empty string under 100 characters
+    // - role: required string, one of 'Doctor', 'Staff', 'Student'
+    // - institution: optional string under 100 characters (may be empty or absent)
+    // - Extra fields and wrong types are strictly rejected
     function isValidUserDoc(data) {
       return data.keys().hasOnly(['displayName', 'role', 'institution']) &&
+             data.keys().hasAll(['displayName', 'role']) &&
              data.displayName is string &&
              data.displayName.size() > 0 &&
              data.displayName.size() < 100 &&
-             data.institution is string &&
-             data.institution.size() > 0 &&
-             data.institution.size() < 100 &&
              data.role is string &&
-             data.role in ['Doctor', 'Staff', 'Student'];
+             data.role in ['Doctor', 'Staff', 'Student'] &&
+             (!('institution' in data) || (data.institution is string && data.institution.size() < 100));
     }
 
-    // Validation for users/{uid}/analyses/{id} documents
-    // Accepts only label, probability (number 0 to 1), cluster, modelVersion, and createdAt
+    // Validation for createdAt: must be within 5 minutes of request.time (not far in the past or future)
+    function isValidCreatedAt(val) {
+      return (val is timestamp &&
+              val >= request.time - duration.value(5, 'm') &&
+              val <= request.time + duration.value(5, 'm')) ||
+             (val is string &&
+              val.size() >= 20 &&
+              val.size() <= 35 &&
+              val.matches('^' + string(request.time.year()) + '-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}.*'));
+    }
+
+    // Validation for users/{uid}/analyses/{id} documents:
+    // - finding: required string ('Possible abnormal finding' or 'No abnormal finding flagged')
+    // - probability: required number in range [0.0, 1.0]
+    // - modelVersion: required non-empty string under 100 characters
+    // - source: required string ('upload' or 'sample')
+    // - createdAt: required timestamp or ISO string within 5 minutes of request.time
+    // - Strict schema: hasAll and hasOnly, rejecting extra fields (such as image data), old fields (cluster, label), and invalid types
     function isValidAnalysisDoc(data) {
-      return data.keys().hasOnly(['label', 'probability', 'cluster', 'modelVersion', 'createdAt']) &&
-             data.label is string &&
-             (data.label == 'Normal' || data.label == 'Abnormal') &&
+      return data.keys().hasAll(['finding', 'probability', 'modelVersion', 'source', 'createdAt']) &&
+             data.keys().hasOnly(['finding', 'probability', 'modelVersion', 'source', 'createdAt']) &&
+             data.finding is string &&
+             (data.finding == 'Possible abnormal finding' || data.finding == 'No abnormal finding flagged') &&
              data.probability is number &&
              data.probability >= 0.0 &&
              data.probability <= 1.0 &&
-             (data.cluster is int || data.cluster is string) &&
              data.modelVersion is string &&
              data.modelVersion.size() > 0 &&
              data.modelVersion.size() < 100 &&
-             (data.createdAt is timestamp || data.createdAt is string);
+             data.source is string &&
+             (data.source == 'upload' || data.source == 'sample') &&
+             isValidCreatedAt(data.createdAt);
     }
 
     // User profile documents: only verified owner can read/write their own profile
@@ -60,7 +80,7 @@ service cloud.firestore {
       }
     }
 
-    // Default deny for all other collections/documents
+    // Default deny for all other collections/documents (e.g. /anything/else)
     match /{document=**} {
       allow read, write: if false;
     }

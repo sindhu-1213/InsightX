@@ -66,6 +66,7 @@ node_modules/
 *-debug.log
 firestore-debug.log
 ui-debug.log
+firebase-debug.log
 insightx-frontend/node_modules/
 insightx-frontend/build/
 insightx-frontend/dist/
@@ -87,3 +88,6 @@ desktop.ini
 !reports/*.png
 !reports/gradcam_examples/*.png
 !web/public/*.png
+
+*-sa.json
+*firebase-adminsdk*.json
