@@ -4,6 +4,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "prebuild": "node ../scripts/sync-assets.mjs",
+    "predev": "node ../scripts/sync-assets.mjs",
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
@@ -13,6 +15,7 @@
     "firebase": "^13.0.0",
     "heic2any": "^0.0.4",
     "lucide-react": "^0.475.0",
+    "onnxruntime-web": "^1.31.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.2.0",

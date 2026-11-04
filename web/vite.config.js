@@ -44,7 +44,8 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,mp4}']
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,mp4}'],
+        globIgnores: ['**/models/**', '**/wasm/**', '**/samples/**']
       }
     })
   ],

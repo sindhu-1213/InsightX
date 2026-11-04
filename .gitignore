@@ -74,6 +74,9 @@ insightx-frontend/.cache/
 web/node_modules/
 web/dist/
 web/build/
+web/public/models/
+web/public/samples/
+web/public/wasm/
 .cache/
 
 # ── OS ────────────────────────────────────────────────────────────────────────
