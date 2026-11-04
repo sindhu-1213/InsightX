@@ -3,23 +3,10 @@
  * Ensures rules tests and web client write identical document shapes.
  */
 
-let _serverTimestamp;
-function getServerTimestamp() {
-  if (_serverTimestamp) return _serverTimestamp;
-  // In Node test runner (outside browser and outside production Vite bundling)
-  if (typeof window === 'undefined' && process.env.NODE_ENV !== 'production') {
-    try {
-      const firestorePath = require.resolve('firebase/firestore', { paths: [process.cwd(), __dirname] });
-      _serverTimestamp = require(firestorePath).serverTimestamp;
-    } catch {
-      try {
-        _serverTimestamp = require('firebase/firestore').serverTimestamp;
-      } catch {
-        // Fallback if unavailable
-      }
-    }
-  }
-  return _serverTimestamp;
+let defaultServerTimestamp;
+
+function setServerTimestamp(fn) {
+  defaultServerTimestamp = fn;
 }
 
 function buildUserProfile({ displayName, role, institution }) {
@@ -42,23 +29,21 @@ function buildAnalysisRecord({ finding, label, probability, modelVersion, source
       findingText = 'No abnormal finding flagged';
     }
   }
-  let defaultCreatedAt;
-  const serverTsFn = getServerTimestamp();
-  if (typeof serverTsFn === 'function') {
-    defaultCreatedAt = serverTsFn();
-  } else {
-    defaultCreatedAt = new Date().toISOString();
+  let resolvedCreatedAt = createdAt;
+  if (resolvedCreatedAt === undefined && typeof defaultServerTimestamp === 'function') {
+    resolvedCreatedAt = defaultServerTimestamp();
   }
   return {
     finding: findingText,
     probability: Number(probability),
     modelVersion: String(modelVersion || '1.0.0').slice(0, 99),
     source: source === 'sample' ? 'sample' : 'upload',
-    createdAt: createdAt !== undefined ? createdAt : defaultCreatedAt,
+    createdAt: resolvedCreatedAt,
   };
 }
 
 module.exports = {
   buildUserProfile,
   buildAnalysisRecord,
+  setServerTimestamp,
 };

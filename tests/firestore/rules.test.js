@@ -29,7 +29,11 @@ const path = require("path");
 const {
   buildUserProfile,
   buildAnalysisRecord,
+  setServerTimestamp,
 } = require("../../web/src/utils/payloadBuilders.cjs");
+
+// Provide test runner's Firestore serverTimestamp to payload builders
+setServerTimestamp(serverTimestamp);
 
 const PROJECT_ID = "insightx-test";
 const RULES_PATH = path.resolve(__dirname, "../../firestore.rules");
@@ -227,7 +231,7 @@ describe("InsightX Firestore Security Rules", function () {
           probability: 0.0821,
           modelVersion: "1.0.0",
           source: "upload",
-          createdAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
         })
       );
       await assertSucceeds(getDoc(analysisRef));
@@ -244,7 +248,7 @@ describe("InsightX Firestore Security Rules", function () {
           probability: 0.9412,
           modelVersion: "1.0.0",
           source: "upload",
-          createdAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
         })
       );
 
@@ -268,7 +272,7 @@ describe("InsightX Firestore Security Rules", function () {
           probability: 1.5,
           modelVersion: "1.0.0",
           source: "upload",
-          createdAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
         })
       );
 
@@ -278,7 +282,7 @@ describe("InsightX Firestore Security Rules", function () {
           probability: -0.1,
           modelVersion: "1.0.0",
           source: "upload",
-          createdAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
         })
       );
     });
@@ -293,7 +297,7 @@ describe("InsightX Firestore Security Rules", function () {
           probability: 0.85,
           modelVersion: "1.0.0",
           source: "upload",
-          createdAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
         })
       );
     });
@@ -308,7 +312,7 @@ describe("InsightX Firestore Security Rules", function () {
           probability: 0.05,
           modelVersion: "1.0.0",
           source: "upload",
-          createdAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
           diagnosisNotes: "Patient has cough",
         })
       );
@@ -324,7 +328,7 @@ describe("InsightX Firestore Security Rules", function () {
           probability: 0.05,
           modelVersion: "1.0.0",
           source: "upload",
-          createdAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
         })
       );
 
@@ -335,7 +339,7 @@ describe("InsightX Firestore Security Rules", function () {
           probability: 0.99,
           modelVersion: "1.0.0",
           source: "upload",
-          createdAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
         })
       );
     });
@@ -350,7 +354,7 @@ describe("InsightX Firestore Security Rules", function () {
           probability: 0.1,
           modelVersion: "1.0.0",
           source: "upload",
-          createdAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
         })
       );
       await assertFails(deleteDoc(doc(db, "users/user_123/analyses/ana_1")));
@@ -370,7 +374,7 @@ describe("InsightX Firestore Security Rules", function () {
           probability: 0.1,
           modelVersion: "1.0.0",
           source: "upload",
-          createdAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
         })
       );
       await assertFails(deleteDoc(doc(db, "users/user_unverified/analyses/ana_1")));
@@ -398,7 +402,7 @@ describe("InsightX Firestore Security Rules", function () {
           probability: 0.05,
           modelVersion: "1.0.0",
           source: "upload",
-          createdAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
         })
       );
 
@@ -475,7 +479,7 @@ describe("InsightX Firestore Security Rules", function () {
           probability: 0.1,
           modelVersion: "1.0.0",
           source: "upload",
-          createdAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
           imageData: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
         })
       );
@@ -487,7 +491,7 @@ describe("InsightX Firestore Security Rules", function () {
           probability: 0.9,
           modelVersion: "1.0.0",
           source: "upload",
-          createdAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
           rawImage: "base64encodedbytes",
         })
       );
@@ -503,7 +507,7 @@ describe("InsightX Firestore Security Rules", function () {
           probability: "0.5",
           modelVersion: "1.0.0",
           source: "upload",
-          createdAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
         })
       );
 
@@ -514,7 +518,7 @@ describe("InsightX Firestore Security Rules", function () {
           probability: 0.5,
           modelVersion: "1.0.0",
           source: "upload",
-          createdAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
         })
       );
 
@@ -525,7 +529,7 @@ describe("InsightX Firestore Security Rules", function () {
           probability: 0.5,
           modelVersion: "1.0.0",
           source: "invalid_source",
-          createdAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
         })
       );
 
@@ -536,7 +540,7 @@ describe("InsightX Firestore Security Rules", function () {
           probability: 0.5,
           modelVersion: "V".repeat(101),
           source: "upload",
-          createdAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
         })
       );
 
@@ -546,7 +550,7 @@ describe("InsightX Firestore Security Rules", function () {
           finding: "No abnormal finding flagged",
           probability: 0.5,
           source: "upload",
-          createdAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
         })
       );
     });
@@ -562,7 +566,7 @@ describe("InsightX Firestore Security Rules", function () {
           probability: 0.15,
           modelVersion: "1.0.0",
           source: "upload",
-          createdAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
         })
       );
 
@@ -626,6 +630,17 @@ describe("InsightX Firestore Security Rules", function () {
           modelVersion: "1.0.0",
           source: "upload",
           createdAt: futureTs,
+        })
+      );
+
+      // Current ISO string (strings are now strictly rejected; only Firestore timestamps are permitted)
+      await assertFails(
+        setDoc(doc(db, "users/doctor_uid/analyses/ana_current_iso_str"), {
+          finding: "No abnormal finding flagged",
+          probability: 0.2,
+          modelVersion: "1.0.0",
+          source: "upload",
+          createdAt: new Date().toISOString(),
         })
       );
 
@@ -748,7 +763,7 @@ describe("InsightX Firestore Security Rules", function () {
           modelVersion: "1.0.0",
           source: "upload",
           cluster: 2,
-          createdAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
         })
       );
     });
@@ -762,7 +777,7 @@ describe("InsightX Firestore Security Rules", function () {
           modelVersion: "1.0.0",
           source: "upload",
           label: "Abnormal",
-          createdAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
         })
       );
     });

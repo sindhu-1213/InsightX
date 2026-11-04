@@ -31,15 +31,11 @@ service cloud.firestore {
              (!('institution' in data) || (data.institution is string && data.institution.size() < 100));
     }
 
-    // Validation for createdAt: must be within 5 minutes of request.time (not far in the past or future)
+    // Validation for createdAt: must be a Firestore timestamp within 5 minutes of request.time
     function isValidCreatedAt(val) {
-      return (val is timestamp &&
-              val >= request.time - duration.value(5, 'm') &&
-              val <= request.time + duration.value(5, 'm')) ||
-             (val is string &&
-              val.size() >= 20 &&
-              val.size() <= 35 &&
-              val.matches('^' + string(request.time.year()) + '-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}.*'));
+      return val is timestamp &&
+             val >= request.time - duration.value(5, 'm') &&
+             val <= request.time + duration.value(5, 'm');
     }
 
     // Validation for users/{uid}/analyses/{id} documents:
@@ -47,7 +43,7 @@ service cloud.firestore {
     // - probability: required number in range [0.0, 1.0]
     // - modelVersion: required non-empty string under 100 characters
     // - source: required string ('upload' or 'sample')
-    // - createdAt: required timestamp or ISO string within 5 minutes of request.time
+    // - createdAt: required timestamp within 5 minutes of request.time
     // - Strict schema: hasAll and hasOnly, rejecting extra fields (such as image data), old fields (cluster, label), and invalid types
     function isValidAnalysisDoc(data) {
       return data.keys().hasAll(['finding', 'probability', 'modelVersion', 'source', 'createdAt']) &&
