@@ -4,10 +4,13 @@ Saves golden reference outputs to tests/data/reference_predictions.json for
 client-side parity verification.
 """
 
+import base64
 import hashlib
+import io
 import json
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import onnxruntime as ort
 from PIL import Image
@@ -61,6 +64,60 @@ def compute_7x7_cam(conv_features: np.ndarray, weights: np.ndarray) -> np.ndarra
     return cam
 
 
+def compute_numpy_cam_overlay(
+    image: Image.Image,
+    conv_features: np.ndarray,
+    weights: np.ndarray,
+    alpha: float = 0.45,
+) -> str:
+    cam = np.sum(conv_features * weights.reshape(1, 1, -1), axis=-1)
+    cam = np.maximum(cam, 0.0)
+    max_val = np.max(cam)
+    if max_val > 0:
+        cam = cam / (max_val + 1e-10)
+
+    w, h = image.size
+    scale = min(224.0 / w, 224.0 / h)
+    new_w = max(1, int(round(w * scale)))
+    new_h = max(1, int(round(h * scale)))
+    paste_x = (224 - new_w) // 2
+    paste_y = (224 - new_h) // 2
+
+    cam_uint8 = np.uint8(np.clip(cam * 255.0, 0, 255))
+    cam_canvas = Image.fromarray(cam_uint8).resize((224, 224), Image.Resampling.BILINEAR)
+    cam_cropped = cam_canvas.crop((paste_x, paste_y, paste_x + new_w, paste_y + new_h))
+
+    max_overlay_dim = 1024
+    if max(w, h) > max_overlay_dim:
+        if w >= h:
+            overlay_w = max_overlay_dim
+            overlay_h = max(1, int(round(h * max_overlay_dim / w)))
+        else:
+            overlay_h = max_overlay_dim
+            overlay_w = max(1, int(round(w * max_overlay_dim / h)))
+    else:
+        overlay_w, overlay_h = w, h
+
+    cam_resized = np.array(
+        cam_cropped.resize((overlay_w, overlay_h), Image.Resampling.BILINEAR)
+    ) / 255.0
+
+    cmap = plt.get_cmap("jet")
+    colored_heatmap = cmap(cam_resized)[..., :3]
+
+    base_img = image.convert("RGB")
+    if base_img.size != (overlay_w, overlay_h):
+        base_img = base_img.resize((overlay_w, overlay_h), Image.Resampling.BILINEAR)
+    orig_rgb = np.asarray(base_img, dtype=np.float32) / 255.0
+    blended = (1.0 - alpha) * orig_rgb + alpha * colored_heatmap
+    overlay_uint8 = np.uint8(np.clip(blended * 255.0, 0, 255))
+
+    buf = io.BytesIO()
+    Image.fromarray(overlay_uint8).save(buf, format="PNG")
+    b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+    return f"data:image/png;base64,{b64}"
+
+
 def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -112,6 +169,7 @@ def main():
         )
 
         cam7x7 = compute_7x7_cam(conv_out[0], weights)
+        overlay_uri = compute_numpy_cam_overlay(img, conv_out[0], weights, alpha=0.45)
 
         entry = {
             "id": sf.name,
@@ -128,6 +186,7 @@ def main():
             "finding": worded_label,
             "prediction_code": pred_code,
             "cam_7x7": cam7x7.tolist(),
+            "overlay_png_base64": overlay_uri,
         }
 
         # Include raw tensor values for sample_01 and sample_04 to allow exact stage 1 testing

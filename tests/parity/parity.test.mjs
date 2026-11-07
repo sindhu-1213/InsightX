@@ -240,5 +240,91 @@ describe('Client-Side Inference Numerical Parity Test Suite', function () {
       console.log(`    Verdict Match Count: ${verdictMatchCount} / ${refData.samples.length} (100% Identical)\n`);
     });
   });
+
+  describe('Stage 4: Grad-CAM Overlay Parity (Tolerance <= 3/255 & Identical Dimensions)', function () {
+    it('matches Python overlay dimensions and pixel values within 3/255 mean absolute difference for all 8 samples', async function () {
+      console.log('\n    --- Stage 4: Grad-CAM Overlay Differences (JS vs Python Reference) ---');
+      console.log('    | Sample ID | Py Dimensions | JS Dimensions | Mean Pixel Diff (/255) | Normalized Diff | Status |');
+      console.log('    |---|---|---|---|---|---|');
+
+      const maxMeanDiffAllowed = 3.0 / 255.0; // ~0.011765
+      let maxMeanDiffOverall = 0;
+      let maxSampleId = '';
+
+      for (const sample of refData.samples) {
+        assert(sample.overlay_png_base64, `Sample ${sample.id} missing reference overlay`);
+
+        const pngPath = path.join(REPO_ROOT, 'samples', sample.id);
+        const pngBuffer = fs.readFileSync(pngPath);
+        const parsed = PNG.sync.read(pngBuffer);
+
+        const { tensor: jsTensor, cropInfo } = preprocessImage({
+          data: parsed.data,
+          width: parsed.width,
+          height: parsed.height
+        });
+
+        const inputTensor = new ort.Tensor('float32', jsTensor, [1, 224, 224, 3]);
+        const outputs = await session.run({ [session.inputNames[0]]: inputTensor });
+
+        const convOut =
+          outputs[session.outputNames[0]].dims.length === 4
+            ? outputs[session.outputNames[0]].data
+            : outputs[session.outputNames[1]].data;
+
+        const { overlayWidth, overlayHeight, blendedRgba } = await computeGradCam(
+          convOut,
+          weights,
+          cropInfo,
+          { data: parsed.data, width: parsed.width, height: parsed.height },
+          0.45
+        );
+
+        const pyBuf = Buffer.from(sample.overlay_png_base64.split(',')[1], 'base64');
+        const pyPng = PNG.sync.read(pyBuf);
+
+        // 1. Dimensions must be identical
+        assert.strictEqual(
+          overlayWidth,
+          pyPng.width,
+          `Sample ${sample.id} overlay width mismatch: js=${overlayWidth}, py=${pyPng.width}`
+        );
+        assert.strictEqual(
+          overlayHeight,
+          pyPng.height,
+          `Sample ${sample.id} overlay height mismatch: js=${overlayHeight}, py=${pyPng.height}`
+        );
+
+        // 2. Mean absolute pixel difference <= 3/255 across RGB channels
+        let totalDiff = 0;
+        let count = 0;
+        for (let i = 0; i < overlayWidth * overlayHeight; i++) {
+          for (let c = 0; c < 3; c++) {
+            totalDiff += Math.abs(blendedRgba[i * 4 + c] - pyPng.data[i * 4 + c]);
+            count++;
+          }
+        }
+
+        const meanDiffRaw = totalDiff / count;
+        const meanDiffNorm = meanDiffRaw / 255.0;
+
+        if (meanDiffNorm > maxMeanDiffOverall) {
+          maxMeanDiffOverall = meanDiffNorm;
+          maxSampleId = sample.id;
+        }
+
+        console.log(
+          `    | ${sample.id} | ${pyPng.width}x${pyPng.height} | ${overlayWidth}x${overlayHeight} | ${meanDiffRaw.toFixed(4)}/255 | ${meanDiffNorm.toFixed(6)} | PASS |`
+        );
+
+        assert(
+          meanDiffNorm <= maxMeanDiffAllowed,
+          `Sample ${sample.id} mean pixel diff (${meanDiffNorm.toFixed(6)}) exceeded tolerance 3/255 (${maxMeanDiffAllowed.toFixed(6)})`
+        );
+      }
+
+      console.log(`    Overall Stage 4 Max Mean Pixel Diff: ${(maxMeanDiffOverall * 255).toFixed(4)}/255 (${maxMeanDiffOverall.toFixed(6)}) on ${maxSampleId}\n`);
+    });
+  });
 });
 
