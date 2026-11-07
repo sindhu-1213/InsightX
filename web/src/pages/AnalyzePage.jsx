@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import {
@@ -14,6 +14,7 @@ import {
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { buildAnalysisRecord } from '../utils/payloadBuilders';
+import { inferenceAdapter } from '../inference/adapter';
 import {
   UploadCloud,
   Camera,
@@ -24,13 +25,9 @@ import {
   Eye,
   ShieldCheck,
   CheckCircle2,
-  Lock,
-  Layers,
   Sliders,
   Info,
-  Clock,
-  ArrowRight,
-  Maximize2
+  Cpu
 } from 'lucide-react';
 
 // Pre-indexed demo samples for instant guest testing without login
@@ -39,25 +36,29 @@ const DEFAULT_SAMPLES = [
     id: 'sample_01_normal.png',
     title: 'Sample 1: Normal Baseline',
     desc: 'Frontal radiograph showing clear lung fields and normal cardiothoracic ratio.',
-    expectedLabel: 'Normal'
+    expectedLabel: 'Normal',
+    url: '/samples/sample_01_normal.png'
   },
   {
     id: 'sample_02_normal.png',
     title: 'Sample 2: Normal Projection',
     desc: 'Unremarkable pulmonary parenchyma without focal consolidation or effusion.',
-    expectedLabel: 'Normal'
+    expectedLabel: 'Normal',
+    url: '/samples/sample_02_normal.png'
   },
   {
-    id: 'sample_03_abnormal_cardiac_shadow.png',
-    title: 'Sample 3: Enlarged Cardiac Silhouette',
-    desc: 'Frontal radiograph displaying cardiomegaly with increased cardiothoracic ratio.',
-    expectedLabel: 'Abnormal'
+    id: 'sample_03_normal.png',
+    title: 'Sample 3: Normal Silhouette',
+    desc: 'Indiana University radiograph without focal consolidation or effusion.',
+    expectedLabel: 'Normal',
+    url: '/samples/sample_03_normal.png'
   },
   {
-    id: 'sample_04_abnormal_granulomatous.png',
-    title: 'Sample 4: Focal Granulomatous Pathology',
+    id: 'sample_04_abnormal.png',
+    title: 'Sample 4: Focal Granuloma Case',
     desc: 'Localized opacity and dense parenchymal markings in the lung field.',
-    expectedLabel: 'Abnormal'
+    expectedLabel: 'Abnormal',
+    url: '/samples/sample_04_abnormal.png'
   }
 ];
 
@@ -78,6 +79,11 @@ function resizeImageIfNeeded(file, maxDimension = 1024) {
       const origWidth = img.naturalWidth || img.width;
       const origHeight = img.naturalHeight || img.height;
 
+      if (!origWidth || !origHeight || origWidth <= 0 || origHeight <= 0) {
+        reject(new Error('Invalid image dimensions'));
+        return;
+      }
+
       if (origWidth <= maxDimension && origHeight <= maxDimension) {
         resolve({
           file,
@@ -93,10 +99,10 @@ function resizeImageIfNeeded(file, maxDimension = 1024) {
       let targetHeight = origHeight;
 
       if (origWidth > origHeight) {
-        targetHeight = Math.round((origHeight * maxDimension) / origWidth);
+        targetHeight = Math.max(1, Math.round((origHeight * maxDimension) / origWidth));
         targetWidth = maxDimension;
       } else {
-        targetWidth = Math.round((origWidth * maxDimension) / origHeight);
+        targetWidth = Math.max(1, Math.round((origWidth * maxDimension) / origHeight));
         targetHeight = maxDimension;
       }
 
@@ -143,8 +149,13 @@ function resizeImageIfNeeded(file, maxDimension = 1024) {
 }
 
 function AnalyzePage() {
-  const { currentUser, getIdToken, userProfile } = useAuth();
-  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const { currentUser, userProfile } = useAuth();
+
+  // Model Engine State
+  const [modelStatus, setModelStatus] = useState('unloaded'); // 'unloaded' | 'loading' | 'ready' | 'error'
+  const [modelProgress, setModelProgress] = useState(0);
+  const [modelStatusText, setModelStatusText] = useState('');
+  const [modelError, setModelError] = useState(null);
 
   // Upload & File State
   const [selectedFile, setSelectedFile] = useState(null);
@@ -158,9 +169,8 @@ function AnalyzePage() {
 
   // Inference & Response State
   const [loading, setLoading] = useState(false);
-  const [isWakingUp, setIsWakingUp] = useState(false);
   const [result, setResult] = useState(null);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(null); // { title: string, message: string, onRetry?: function } | null
   const [savedStatus, setSavedStatus] = useState(null);
 
   // Visual Overlay State
@@ -169,59 +179,49 @@ function AnalyzePage() {
 
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
-  const wakingTimerRef = useRef(null);
+
+  const initModel = useCallback(async () => {
+    try {
+      setModelStatus('loading');
+      setModelError(null);
+      await inferenceAdapter.initialize((pct, statusText) => {
+        setModelProgress(pct);
+        setModelStatusText(statusText);
+      });
+      setModelStatus('ready');
+    } catch (err) {
+      console.error('Failed to initialize in-browser engine:', err);
+      setModelStatus('error');
+      const isWasmIssue =
+        typeof WebAssembly === 'undefined' ||
+        err.message?.toLowerCase().includes('wasm') ||
+        err.message?.toLowerCase().includes('webassembly');
+      setModelError(
+        isWasmIssue
+          ? 'WebAssembly is unsupported or failed to initialize in this browser.'
+          : 'Failed to download model weights. Please check your internet connection and retry.'
+      );
+    }
+  }, []);
 
   useEffect(() => {
     document.title = 'InsightX | Radiograph Analysis Workbench';
-  }, []);
+    initModel();
+  }, [initModel]);
 
-  // Fetch sample catalog from API if available
+  // Load sample manifest from local static assets
   useEffect(() => {
-    fetch(`${apiUrl}/samples`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (Array.isArray(data) && data.length > 0) {
-          const mapped = data.map((filename, i) => {
-            const isAbnormal = filename.toLowerCase().includes('abnormal');
-            return {
-              id: filename,
-              title: `Sample ${i + 1}: ${isAbnormal ? 'Abnormal Case' : 'Normal Projection'}`,
-              desc: isAbnormal
-                ? 'Indiana University radiograph demonstrating focal pathology markings.'
-                : 'Indiana University radiograph demonstrating clear cardiothoracic fields.',
-              expectedLabel: isAbnormal ? 'Abnormal' : 'Normal'
-            };
-          });
-          setSamples(mapped);
+    inferenceAdapter
+      .listSamples()
+      .then((items) => {
+        if (Array.isArray(items) && items.length > 0) {
+          setSamples(items);
         }
       })
-      .catch(() => {
-        // Fall back to default predefined samples
+      .catch((err) => {
+        console.warn('Failed to load sample catalog, using built-in defaults:', err);
       });
-  }, [apiUrl]);
-
-  // Clean up waking-up timer on unmount
-  useEffect(() => {
-    return () => {
-      if (wakingTimerRef.current) clearTimeout(wakingTimerRef.current);
-    };
   }, []);
-
-  const startWakingTimer = () => {
-    setIsWakingUp(false);
-    if (wakingTimerRef.current) clearTimeout(wakingTimerRef.current);
-    wakingTimerRef.current = setTimeout(() => {
-      setIsWakingUp(true);
-    }, 5000);
-  };
-
-  const stopWakingTimer = () => {
-    if (wakingTimerRef.current) {
-      clearTimeout(wakingTimerRef.current);
-      wakingTimerRef.current = null;
-    }
-    setIsWakingUp(false);
-  };
 
   const processIncomingFile = async (rawFile) => {
     if (!rawFile) return;
@@ -246,12 +246,20 @@ function AnalyzePage() {
     ];
 
     if (!validMimes.includes(rawFile.type) && !hasValidExt) {
-      setError('Please provide a valid radiograph image (PNG, JPEG, WebP, or iPhone HEIC).');
+      setError({
+        title: 'Unsupported File Format',
+        message: 'Please provide a valid radiograph image (PNG, JPEG, WebP, or iPhone HEIC).',
+        onRetry: () => fileInputRef.current?.click()
+      });
       return;
     }
 
     if (rawFile.size > 20 * 1024 * 1024) {
-      setError('Original image exceeds 20 MB. Please select a smaller file.');
+      setError({
+        title: 'File Too Large',
+        message: 'Original image exceeds 20 MB. Please select a smaller radiograph file.',
+        onRetry: () => fileInputRef.current?.click()
+      });
       return;
     }
 
@@ -274,13 +282,16 @@ function AnalyzePage() {
         fileToProcess = new File(
           [singleBlob],
           rawFile.name.replace(/\.(heic|heif)$/i, '.jpg'),
-          { type: 'image/jpeg', lastModified: Date.now() }
+          { type: 'image/jpeg', lastModified: rawFile.lastModified || 0 }
         );
       } catch (conversionErr) {
         console.error('HEIC conversion failed:', conversionErr);
-        setError(
-          'Failed to convert iPhone HEIC photo. Please capture in Most Compatible (JPEG) format, take a screenshot of the scan, or upload a PNG/JPEG file.'
-        );
+        setError({
+          title: 'HEIC Conversion Failed',
+          message:
+            'Failed to convert iPhone HEIC photo. Please take a screenshot, capture in Most Compatible (JPEG) format, or upload a PNG/JPEG scan.',
+          onRetry: () => processIncomingFile(rawFile)
+        });
         return;
       }
     }
@@ -296,8 +307,12 @@ function AnalyzePage() {
         finalDims: resized.finalDims
       });
     } catch (err) {
-      console.error('Resize error:', err);
-      setError('Failed to process image locally. Please try a different radiograph.');
+      console.error('Resize / decode error:', err);
+      setError({
+        title: 'Invalid or Corrupt Image',
+        message: 'Failed to decode image locally. Please ensure the file is a valid, uncorrupted radiograph.',
+        onRetry: () => fileInputRef.current?.click()
+      });
     }
   };
 
@@ -306,7 +321,7 @@ function AnalyzePage() {
     if (file) processIncomingFile(file);
   };
 
-  // Guest sample trigger: Works without login
+  // Sample Selection: Works for guests and logged-in practitioners alike
   const handleSelectSample = async (sample) => {
     setError(null);
     setLoading(true);
@@ -315,27 +330,24 @@ function AnalyzePage() {
     setResizeMeta(null);
     setSavedStatus(null);
 
-    // Set preview to API sample URL or local placeholder
-    const sampleImageUrl = `${apiUrl}/samples/${sample.id}`;
-    setPreviewUrl(sampleImageUrl);
-
-    startWakingTimer();
+    const sampleUrl = sample.url || `/samples/${sample.id}`;
+    setPreviewUrl(sampleUrl);
 
     try {
-      const res = await fetch(`${apiUrl}/samples/${encodeURIComponent(sample.id)}/predict`);
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.detail || `Server error (HTTP ${res.status})`);
+      if (!inferenceAdapter.isReady()) {
+        await initModel();
       }
-      const data = await res.json();
+      const data = await inferenceAdapter.predict(sampleUrl);
       setResult(data);
 
-      // If practitioner is signed in with verified email, log sample analysis
+      // Save to Firestore audit log if practitioner is logged in with verified email
       if (currentUser && currentUser.emailVerified) {
         try {
           const analysesRef = collection(db, 'users', currentUser.uid, 'analyses');
           const record = buildAnalysisRecord({
-            finding: data.finding || data.finding_label || (data.label === 'Abnormal' ? 'Possible abnormal finding' : 'No abnormal finding flagged'),
+            finding:
+              data.finding ||
+              (data.label === 'Abnormal' ? 'Possible abnormal finding' : 'No abnormal finding flagged'),
             probability: Number(data.calibrated_probability),
             modelVersion: data.model_version || '1.0.0',
             source: 'sample',
@@ -348,94 +360,66 @@ function AnalyzePage() {
         }
       }
     } catch (err) {
-      console.warn('Sample API call failed, providing demonstration fallback:', err);
-      // Fallback demo result so judges/testers can always see full dashboard
-      setTimeout(() => {
-        const isAb = sample.expectedLabel === 'Abnormal';
-        setResult({
-          label: isAb ? 'Abnormal' : 'Normal',
-          finding: isAb ? 'Possible abnormal finding' : 'No abnormal finding flagged',
-          prediction_code: isAb ? 1 : 0,
-          calibrated_probability: isAb ? 0.748 : 0.162,
-          uncalibrated_probability: isAb ? 0.71 : 0.19,
-          model_version: '1.0.0',
-          gradcam_overlay: null,
-          disclaimer:
-            'RESEARCH DEMO ONLY: This model output is strictly for experimental research and investigation. It is NOT a medical diagnosis and should never replace licensed clinical judgment.'
-        });
-        setLoading(false);
-        stopWakingTimer();
-      }, 400);
-      return;
+      console.error('Sample inference error:', err);
+      setError({
+        title: 'Sample Analysis Error',
+        message: err.message || 'Failed to analyze sample radiograph.',
+        onRetry: () => handleSelectSample(sample)
+      });
     } finally {
-      stopWakingTimer();
       setLoading(false);
     }
   };
 
-  // Authenticated custom upload trigger: Requires Firebase ID token
+  // Custom Upload Analysis: Runs in browser for guests and practitioners
   const handleUploadPredict = async () => {
     if (!selectedFile) {
-      setError('Please choose or capture a chest radiograph first.');
-      return;
-    }
-
-    if (!currentUser) {
-      setError('Authentication required: Sign in with your clinical credentials to analyze custom uploads.');
-      return;
-    }
-
-    if (!currentUser.emailVerified) {
-      setError('Email verification required: Please verify your practitioner email before submitting custom analyses.');
+      setError({
+        title: 'No Radiograph Selected',
+        message: 'Please choose or capture a chest radiograph first.',
+        onRetry: () => fileInputRef.current?.click()
+      });
       return;
     }
 
     setLoading(true);
     setError(null);
     setSavedStatus(null);
-    startWakingTimer();
 
     try {
-      const token = await getIdToken();
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-
-      const res = await fetch(`${apiUrl}/predict`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`
-        },
-        body: formData
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.detail || `Server returned HTTP ${res.status}`);
+      if (!inferenceAdapter.isReady()) {
+        await initModel();
       }
-
-      const data = await res.json();
+      const data = await inferenceAdapter.predict(selectedFile);
       setResult(data);
 
-      // Write immutable analysis record to Firestore under users/{uid}/analyses
-      // Security rules strictly forbid image data and allow only specified fields
-      try {
-        const analysesRef = collection(db, 'users', currentUser.uid, 'analyses');
-        const record = buildAnalysisRecord({
-          finding: data.finding || data.finding_label || (data.label === 'Abnormal' ? 'Possible abnormal finding' : 'No abnormal finding flagged'),
-          probability: Number(data.calibrated_probability),
-          modelVersion: data.model_version || '1.0.0',
-          source: 'upload',
-          createdAt: serverTimestamp()
-        });
-        await addDoc(analysesRef, record);
-        setSavedStatus('Analysis recorded to your practitioner audit log in Firestore.');
-      } catch (firestoreErr) {
-        console.warn('Firestore write note:', firestoreErr.message);
+      // If practitioner is signed in with verified email, save to Firestore
+      if (currentUser && currentUser.emailVerified) {
+        try {
+          const analysesRef = collection(db, 'users', currentUser.uid, 'analyses');
+          const record = buildAnalysisRecord({
+            finding:
+              data.finding ||
+              (data.label === 'Abnormal' ? 'Possible abnormal finding' : 'No abnormal finding flagged'),
+            probability: Number(data.calibrated_probability),
+            modelVersion: data.model_version || '1.0.0',
+            source: 'upload',
+            createdAt: serverTimestamp()
+          });
+          await addDoc(analysesRef, record);
+          setSavedStatus('Analysis recorded to your practitioner audit log in Firestore.');
+        } catch (firestoreErr) {
+          console.warn('Firestore write note:', firestoreErr.message);
+        }
       }
     } catch (err) {
-      setError(err.message || 'Analysis request failed.');
+      console.error('Inference error:', err);
+      setError({
+        title: 'In-Browser Inference Error',
+        message: err.message || 'Failed to analyze radiograph in browser.',
+        onRetry: () => handleUploadPredict()
+      });
     } finally {
-      stopWakingTimer();
       setLoading(false);
     }
   };
@@ -463,7 +447,7 @@ function AnalyzePage() {
       {/* Page Heading */}
       <div style={{ textAlign: 'center', maxWidth: '820px', margin: '0 auto 2.5rem auto' }}>
         <span className="badge-cyan" style={{ marginBottom: '0.75rem' }}>
-          <Sparkles size={14} /> Neural Inference Workbench
+          <Sparkles size={14} /> In-Browser Neural Engine
         </span>
         <h1
           style={{
@@ -481,8 +465,131 @@ function AnalyzePage() {
             lineHeight: '1.6'
           }}
         >
-          Evaluate radiographs using deep MobileNetV2 with Platt probability calibration and layer-targeted Grad-CAM visual heatmaps.
+          Zero-backend on-device inference using WebAssembly SIMD. Evaluate radiographs locally with Platt
+          probability calibration and spatial Grad-CAM attention heatmaps.
         </p>
+      </div>
+
+      {/* Model Engine Status Card */}
+      <div
+        id="model-status-card"
+        style={{
+          backgroundColor: 'rgba(4, 20, 40, 0.85)',
+          border:
+            modelStatus === 'error'
+              ? '1px solid var(--danger)'
+              : modelStatus === 'ready'
+                ? '1px solid rgba(16, 185, 129, 0.35)'
+                : '1px solid rgba(0, 212, 255, 0.35)',
+          borderRadius: 'var(--radius-md)',
+          padding: '1rem 1.25rem',
+          marginBottom: '2rem',
+          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)'
+        }}
+      >
+        {modelStatus === 'loading' && (
+          <div>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '0.5rem',
+                fontSize: '0.85rem'
+              }}
+            >
+              <span style={{ color: '#00d4ff', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <RefreshCw size={15} className="spin" />
+                <span>{modelStatusText || 'Initializing neural model...'}</span>
+              </span>
+              <span style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                {modelProgress}%
+              </span>
+            </div>
+            <div
+              style={{
+                height: '6px',
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                borderRadius: '3px',
+                overflow: 'hidden'
+              }}
+            >
+              <div
+                style={{
+                  height: '100%',
+                  width: `${modelProgress}%`,
+                  backgroundColor: 'var(--cyan)',
+                  transition: 'width 0.3s ease'
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {modelStatus === 'ready' && (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: '0.75rem'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <CheckCircle2 size={18} color="var(--success)" />
+              <div style={{ fontSize: '0.875rem', fontWeight: 600, color: '#ffffff' }}>
+                In-Browser Neural Engine Ready
+              </div>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                &bull; WebAssembly SIMD &bull; Single-Threaded
+              </span>
+            </div>
+            <span
+              style={{
+                fontSize: '0.725rem',
+                color: '#00d4ff',
+                backgroundColor: 'rgba(0, 212, 255, 0.1)',
+                border: '1px solid rgba(0, 212, 255, 0.25)',
+                padding: '0.2rem 0.55rem',
+                borderRadius: '4px'
+              }}
+            >
+              Cached in Browser
+            </span>
+          </div>
+        )}
+
+        {modelStatus === 'error' && (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: '0.75rem'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', color: 'var(--danger)' }}>
+              <AlertTriangle size={18} />
+              <span style={{ fontSize: '0.875rem' }}>{modelError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={initModel}
+              className="btn-secondary btn-sm"
+              style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+            >
+              <RefreshCw size={13} /> Retry Download
+            </button>
+          </div>
+        )}
+
+        {modelStatus === 'unloaded' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+            <Cpu size={16} /> Preparing on-device inference runtime...
+          </div>
+        )}
       </div>
 
       {/* Practitioner Status Bar */}
@@ -533,7 +640,7 @@ function AnalyzePage() {
         </div>
       )}
 
-      {/* Guest Sample Gallery Strip: Works without Login */}
+      {/* Sample Radiograph Gallery */}
       <section
         id="sample-gallery-section"
         style={{
@@ -557,7 +664,7 @@ function AnalyzePage() {
         >
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span className="badge-cyan" style={{ fontSize: '0.7rem' }}>Guest Trial Mode</span>
+              <span className="badge-cyan" style={{ fontSize: '0.7rem' }}>On-Device Demo</span>
               <h2
                 style={{
                   fontSize: '1.15rem',
@@ -570,11 +677,11 @@ function AnalyzePage() {
               </h2>
             </div>
             <p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', margin: '0.25rem 0 0 0' }}>
-              Explore instant clinical predictions on pre-indexed Indiana University scans without needing an account.
+              Instant on-device evaluation of pre-indexed Indiana University scans. Select any case to analyze locally.
             </p>
           </div>
           <span style={{ fontSize: '0.75rem', color: '#00d4ff', fontFamily: 'var(--font-heading)' }}>
-            No Token Required
+            Zero Server Calls
           </span>
         </div>
 
@@ -664,7 +771,7 @@ function AnalyzePage() {
                     cursor: loading ? 'not-allowed' : 'pointer'
                   }}
                 >
-                  {isSelected && loading ? 'Inferring...' : isSelected ? 'Loaded in Viewer' : 'Try This Sample'}
+                  {isSelected && loading ? 'Inferring in WASM...' : isSelected ? 'Loaded in Viewer' : 'Try This Sample'}
                 </button>
               </div>
             );
@@ -672,35 +779,7 @@ function AnalyzePage() {
         </div>
       </section>
 
-      {/* Server Waking Up Notice (> 5 seconds cold-start trigger) */}
-      {isWakingUp && (
-        <div
-          id="waking-model-alert"
-          style={{
-            backgroundColor: 'rgba(245, 158, 11, 0.15)',
-            border: '1px solid var(--warning)',
-            borderRadius: 'var(--radius-sm)',
-            padding: '1rem 1.25rem',
-            marginBottom: '1.75rem',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.85rem',
-            color: '#ffffff'
-          }}
-        >
-          <Clock size={22} color="#f59e0b" style={{ flexShrink: 0 }} />
-          <div>
-            <div style={{ fontWeight: 700, color: '#f59e0b', fontSize: '0.9rem' }}>
-              Waking up the neural inference model...
-            </div>
-            <div style={{ fontSize: '0.825rem', color: 'var(--text-secondary)' }}>
-              Serverless cold start in progress. First request may take 8–15 seconds to allocate ONNX session memory.
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Global Error Banner */}
+      {/* Global Error Banner with Retry */}
       {error && (
         <div
           id="analyze-error-alert"
@@ -711,13 +790,43 @@ function AnalyzePage() {
             padding: '1rem 1.25rem',
             marginBottom: '1.75rem',
             display: 'flex',
+            flexWrap: 'wrap',
             alignItems: 'center',
+            justifyContent: 'space-between',
             gap: '0.85rem',
             color: '#ffffff'
           }}
         >
-          <AlertTriangle size={22} color="#ef4444" style={{ flexShrink: 0 }} />
-          <div style={{ fontSize: '0.9rem', flex: 1 }}>{error}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+            <AlertTriangle size={22} color="#ef4444" style={{ flexShrink: 0 }} />
+            <div>
+              {error.title && (
+                <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#ef4444' }}>
+                  {error.title}
+                </div>
+              )}
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                {error.message || String(error)}
+              </div>
+            </div>
+          </div>
+          {error.onRetry && (
+            <button
+              type="button"
+              onClick={error.onRetry}
+              className="btn-secondary btn-sm"
+              style={{
+                flexShrink: 0,
+                padding: '0.35rem 0.75rem',
+                fontSize: '0.8rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem'
+              }}
+            >
+              <RefreshCw size={13} /> Retry
+            </button>
+          )}
         </div>
       )}
 
@@ -730,7 +839,7 @@ function AnalyzePage() {
           alignItems: 'start'
         }}
       >
-        {/* LEFT COLUMN: Upload, Camera & Tap Area */}
+        {/* LEFT COLUMN: Upload, Camera & Controls */}
         <div className="card">
           <div
             style={{
@@ -744,7 +853,7 @@ function AnalyzePage() {
               Upload Custom Radiograph
             </h2>
             <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)' }}>
-              Memory Ingest Only
+              100% Client-Side
             </span>
           </div>
 
@@ -812,10 +921,10 @@ function AnalyzePage() {
                 borderRadius: '4px'
               }}
             >
-              Auto-resized to max 1024px &bull; Never stored to disk
+              Never leaves your device &bull; Evaluated locally
             </span>
 
-            {/* Hidden Desktop/Mobile File Input */}
+            {/* Hidden File Inputs */}
             <input
               ref={fileInputRef}
               type="file"
@@ -826,7 +935,6 @@ function AnalyzePage() {
               onChange={handleFileChange}
             />
 
-            {/* Mobile Direct Camera Capture Input */}
             <input
               ref={cameraInputRef}
               type="file"
@@ -839,7 +947,7 @@ function AnalyzePage() {
             />
           </div>
 
-          {/* Mobile Camera Option Button */}
+          {/* Camera & Library Buttons */}
           <div style={{ marginTop: '0.85rem', display: 'flex', gap: '0.5rem' }}>
             <button
               type="button"
@@ -944,45 +1052,22 @@ function AnalyzePage() {
 
           {/* Run Inference Action Button */}
           <div style={{ marginTop: '1.5rem' }}>
-            {!currentUser ? (
-              <div
-                style={{
-                  padding: '1rem',
-                  backgroundColor: 'rgba(4, 20, 40, 0.9)',
-                  border: '1px solid rgba(0, 212, 255, 0.3)',
-                  borderRadius: 'var(--radius-sm)',
-                  textAlign: 'center'
-                }}
-              >
-                <Lock size={18} color="#00d4ff" style={{ margin: '0 auto 0.35rem auto' }} />
-                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#ffffff', marginBottom: '0.25rem' }}>
-                  Practitioner Login Required for Custom Uploads
-                </div>
-                <p style={{ fontSize: '0.775rem', color: 'var(--text-secondary)', marginBottom: '0.85rem' }}>
-                  Custom analyses are authenticated via Firebase ID tokens and rate-limited. Try any demo sample above to evaluate without signing in!
-                </p>
-                <Link to="/login" className="btn-primary btn-sm" style={{ width: '100%' }}>
-                  Sign In to Upload
-                </Link>
-              </div>
-            ) : (
-              <button
-                id="run-analysis-btn"
-                type="button"
-                className="btn-primary"
-                style={{ width: '100%', padding: '0.85rem' }}
-                disabled={!selectedFile || loading}
-                onClick={handleUploadPredict}
-              >
-                {loading ? (
-                  <>
-                    <RefreshCw size={16} className="animate-spin" /> Running MobileNetV2 Inference...
-                  </>
-                ) : (
-                  'Run Calibrated Neural Analysis'
-                )}
-              </button>
-            )}
+            <button
+              id="run-analysis-btn"
+              type="button"
+              className="btn-primary"
+              style={{ width: '100%', padding: '0.85rem' }}
+              disabled={!selectedFile || loading || modelStatus === 'loading'}
+              onClick={handleUploadPredict}
+            >
+              {loading ? (
+                <>
+                  <RefreshCw size={16} className="spin" /> Evaluating in WebAssembly...
+                </>
+              ) : (
+                'Run In-Browser Neural Analysis'
+              )}
+            </button>
           </div>
         </div>
 
@@ -1027,15 +1112,13 @@ function AnalyzePage() {
                 color: '#00d4ff'
               }}
             >
-              <RefreshCw size={36} className="animate-spin" />
+              <RefreshCw size={36} className="spin" />
               <div>
                 <div style={{ fontFamily: 'var(--font-heading)', fontSize: '1.1rem', color: '#ffffff' }}>
-                  Processing Radiograph
+                  Processing Radiograph Locally
                 </div>
                 <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.35rem' }}>
-                  {isWakingUp
-                    ? 'Waking up container weights on Hugging Face Spaces...'
-                    : 'Computing 224x224 projections, Platt logits, and spatial CAM heatmaps...'}
+                  Running MobileNetV2 ONNX session, Platt logits, and layer-targeted Grad-CAM heatmaps...
                 </div>
               </div>
             </div>
@@ -1102,6 +1185,26 @@ function AnalyzePage() {
                   </div>
                 </div>
 
+                {/* Privacy Badge */}
+                <div
+                  id="browser-privacy-badge"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    padding: '0.25rem 0.65rem',
+                    backgroundColor: 'rgba(0, 212, 255, 0.08)',
+                    border: '1px solid rgba(0, 212, 255, 0.3)',
+                    borderRadius: '4px',
+                    fontSize: '0.75rem',
+                    color: '#00d4ff',
+                    marginTop: '0.75rem'
+                  }}
+                >
+                  <ShieldCheck size={14} />
+                  <span>Ran in your browser. Your image never left your device.</span>
+                </div>
+
                 <div
                   style={{
                     marginTop: '0.75rem',
@@ -1115,11 +1218,9 @@ function AnalyzePage() {
                   }}
                 >
                   <span>
-                    Status:{' '}
+                    Finding:{' '}
                     <strong style={{ color: '#ffffff' }}>
-                      {result.label === 'Normal'
-                        ? 'No acute findings identified'
-                        : 'Pathological anomaly detected'}
+                      {result.finding || (result.label === 'Normal' ? 'No abnormal finding flagged' : 'Possible abnormal finding')}
                     </strong>
                   </span>
                   <span>
@@ -1128,7 +1229,58 @@ function AnalyzePage() {
                 </div>
               </div>
 
-              {/* Recharts Probability Bar / Gauge */}
+              {/* Guest / Unverified Practitioner Save Prompt */}
+              {!currentUser && (
+                <div
+                  id="guest-save-prompt"
+                  style={{
+                    marginBottom: '1.5rem',
+                    padding: '0.85rem 1.15rem',
+                    backgroundColor: 'rgba(10, 31, 53, 0.85)',
+                    border: '1px solid rgba(0, 212, 255, 0.35)',
+                    borderRadius: 'var(--radius-sm)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '0.75rem'
+                  }}
+                >
+                  <div style={{ fontSize: '0.825rem', color: 'var(--text-secondary)' }}>
+                    <strong style={{ color: '#ffffff' }}>Guest Evaluation:</strong> Sign in to save this result to your permanent clinical audit log.
+                  </div>
+                  <Link to="/login" className="btn-primary btn-sm" style={{ padding: '0.35rem 0.85rem', fontSize: '0.8rem' }}>
+                    Sign In to Save
+                  </Link>
+                </div>
+              )}
+
+              {currentUser && !currentUser.emailVerified && (
+                <div
+                  id="unverified-save-prompt"
+                  style={{
+                    marginBottom: '1.5rem',
+                    padding: '0.85rem 1.15rem',
+                    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                    border: '1px solid var(--warning)',
+                    borderRadius: 'var(--radius-sm)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '0.75rem'
+                  }}
+                >
+                  <div style={{ fontSize: '0.825rem', color: 'var(--text-secondary)' }}>
+                    <strong style={{ color: '#f59e0b' }}>Email Verification Required:</strong> Verify your practitioner email to log analyses to Firestore.
+                  </div>
+                  <Link to="/verify-email" className="btn-secondary btn-sm" style={{ padding: '0.35rem 0.85rem', fontSize: '0.8rem' }}>
+                    Verify Email
+                  </Link>
+                </div>
+              )}
+
+              {/* Recharts Probability Bar */}
               <div
                 style={{
                   backgroundColor: 'var(--bg-input)',
@@ -1151,7 +1303,7 @@ function AnalyzePage() {
                     Platt Scaling Probability Gauge
                   </span>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    Decision threshold: 50.0%
+                    Threshold: {(result.threshold ? result.threshold * 100 : 65.2).toFixed(1)}%
                   </span>
                 </div>
 
@@ -1180,11 +1332,11 @@ function AnalyzePage() {
                         formatter={(value) => [`${value}%`, 'Abnormality Score']}
                       />
                       <ReferenceLine
-                        x={50}
+                        x={Number(((result.threshold || 0.6522) * 100).toFixed(1))}
                         stroke="#ffa502"
                         strokeDasharray="3 3"
                         label={{
-                          value: 'Threshold (50%)',
+                          value: `Threshold (${((result.threshold || 0.6522) * 100).toFixed(1)}%)`,
                           fill: '#ffa502',
                           fontSize: 10,
                           position: 'top'
@@ -1193,7 +1345,9 @@ function AnalyzePage() {
                       <Bar dataKey="probability" radius={[0, 6, 6, 0]}>
                         <Cell
                           fill={
-                            result.calibrated_probability >= 0.5 ? '#ef4444' : '#10b981'
+                            result.calibrated_probability >= (result.threshold || 0.6522)
+                              ? '#ef4444'
+                              : '#10b981'
                           }
                         />
                       </Bar>
@@ -1202,7 +1356,7 @@ function AnalyzePage() {
                 </div>
               </div>
 
-              {/* Visualizations: Side-by-Side & Interactive Opacity Overlay */}
+              {/* Visualizations: Side-by-Side & Opacity Slider */}
               <div style={{ marginBottom: '1.5rem' }}>
                 <div
                   style={{
@@ -1295,7 +1449,6 @@ function AnalyzePage() {
                       gap: '0.75rem'
                     }}
                   >
-                    {/* Original Radiograph */}
                     <div>
                       <div
                         style={{
@@ -1331,7 +1484,6 @@ function AnalyzePage() {
                       </div>
                     </div>
 
-                    {/* Grad-CAM Overlay */}
                     <div>
                       <div
                         style={{
@@ -1389,7 +1541,6 @@ function AnalyzePage() {
                       justifyContent: 'center'
                     }}
                   >
-                    {/* Bottom Layer: Original Radiograph */}
                     {previewUrl && (
                       <img
                         src={previewUrl}
@@ -1404,7 +1555,6 @@ function AnalyzePage() {
                       />
                     )}
 
-                    {/* Top Layer: Grad-CAM Overlay blended with user slider opacity */}
                     {result.gradcam_overlay && (
                       <img
                         src={result.gradcam_overlay}
@@ -1444,7 +1594,7 @@ function AnalyzePage() {
                     RESEARCH DEMONSTRATION NOTICE
                   </strong>
                   {result.disclaimer ||
-                    'RESEARCH DEMO ONLY: This model output is strictly for experimental research and investigation. It is NOT a medical diagnosis and should never replace licensed clinical judgment.'}
+                    'RESEARCH DEMO ONLY: This model output is strictly for experimental research and investigation. It is NOT a certified medical diagnosis and should never replace licensed clinical judgment.'}
                 </div>
               </div>
             </div>
@@ -1490,7 +1640,7 @@ function AnalyzePage() {
                 Awaiting Radiograph Input
               </h3>
               <p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', maxWidth: '340px', lineHeight: '1.5' }}>
-                Select a guest sample above to test immediately, or tap the upload box on the left to submit a custom chest radiograph.
+                Select a sample above to test immediately, or tap the upload box on the left to submit a custom chest radiograph. Everything runs on your device.
               </p>
             </div>
           )}
