@@ -156,7 +156,8 @@ export class ClientSideInferenceEngine {
         ort.env.wasm.wasmPaths = wasmBase.endsWith('/') ? wasmBase : `${wasmBase}/`;
       } else {
         // Node environment for parity tests
-        const ortNode = await import('onnxruntime-node');
+        const pkg = 'onnxruntime-' + 'node';
+        const ortNode = await import(/* @vite-ignore */ pkg);
         ort = ortNode.default || ortNode;
       }
 
@@ -202,7 +203,8 @@ export class ClientSideInferenceEngine {
       const ortWeb = await import('onnxruntime-web/wasm');
       ort = ortWeb.default || ortWeb;
     } else {
-      const ortNode = await import('onnxruntime-node');
+      const pkg = 'onnxruntime-' + 'node';
+      const ortNode = await import(/* @vite-ignore */ pkg);
       ort = ortNode.default || ortNode;
     }
 

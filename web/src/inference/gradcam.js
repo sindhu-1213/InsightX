@@ -271,7 +271,8 @@ export async function computeGradCam(
   } else if (typeof globalThis.process !== 'undefined' && globalThis.process?.versions?.node) {
     // Node.js environment: use pngjs to generate base64 data URI
     try {
-      const { PNG } = await import('pngjs');
+      const pkg = 'png' + 'js';
+      const { PNG } = await import(/* @vite-ignore */ pkg);
       const png = new PNG({ width: overlayW, height: overlayH });
       png.data = globalThis.Buffer.from(blendedRgba);
       const buffer = PNG.sync.write(png);
