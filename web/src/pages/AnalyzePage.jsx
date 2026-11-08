@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import {
@@ -73,7 +73,8 @@ function resizeImageIfNeeded(file, maxDimension = 1024) {
     reader.onload = (e) => {
       img.src = e.target.result;
     };
-    reader.onerror = reject;
+    reader.onerror = () => reject(new Error('Failed to read file from storage.'));
+    img.onerror = () => reject(new Error('The selected file is not a valid or readable image.'));
 
     img.onload = () => {
       const origWidth = img.naturalWidth || img.width;
@@ -190,17 +191,54 @@ function AnalyzePage() {
       });
       setModelStatus('ready');
     } catch (err) {
-      console.error('Failed to initialize in-browser engine:', err);
+      console.error('[InsightX Engine Initialization Error]', {
+        message: err.message,
+        stack: err.stack,
+        cause: err.cause
+      });
       setModelStatus('error');
+
+      const msg = (err.message || '').toLowerCase();
       const isWasmIssue =
         typeof WebAssembly === 'undefined' ||
-        err.message?.toLowerCase().includes('wasm') ||
-        err.message?.toLowerCase().includes('webassembly');
-      setModelError(
-        isWasmIssue
-          ? 'WebAssembly is unsupported or failed to initialize in this browser.'
-          : 'Failed to download model weights. Please check your internet connection and retry.'
-      );
+        msg.includes('wasm') ||
+        msg.includes('webassembly') ||
+        msg.includes('simd') ||
+        msg.includes('out of memory') ||
+        msg.includes('aborted') ||
+        msg.includes('no available backend');
+
+      const isNetworkIssue =
+        (typeof navigator !== 'undefined' && !navigator.onLine) ||
+        msg.includes('failed to fetch') ||
+        msg.includes('network') ||
+        msg.includes('failed to download') ||
+        msg.includes('failed to load') ||
+        msg.includes('http') ||
+        msg.includes('asset not found') ||
+        msg.includes('spa fallback');
+
+      if (isWasmIssue) {
+        setModelError({
+          type: 'wasm',
+          title: 'WebAssembly Engine Error',
+          message:
+            'WebAssembly runtime failed to initialize. Your browser may lack WebAssembly SIMD support or have memory restrictions.'
+        });
+      } else if (isNetworkIssue) {
+        setModelError({
+          type: 'network',
+          title: 'Network Download Failure',
+          message:
+            'Network connection failed while downloading neural model assets. Please check your connection and retry.'
+        });
+      } else {
+        setModelError({
+          type: 'runtime',
+          title: 'Runtime Error',
+          message: `In-browser neural engine encountered an initialization error: ${err.message || 'Unknown error'}. Please retry.`
+        });
+      }
     }
   }, []);
 
@@ -310,7 +348,8 @@ function AnalyzePage() {
       console.error('Resize / decode error:', err);
       setError({
         title: 'Invalid or Corrupt Image',
-        message: 'Failed to decode image locally. Please ensure the file is a valid, uncorrupted radiograph.',
+        message:
+          'The selected file is not a valid or readable image. Please choose a valid PNG or JPEG radiograph.',
         onRetry: () => fileInputRef.current?.click()
       });
     }
@@ -562,6 +601,7 @@ function AnalyzePage() {
 
         {modelStatus === 'error' && (
           <div
+            id="model-error-banner"
             style={{
               display: 'flex',
               flexWrap: 'wrap',
@@ -572,15 +612,18 @@ function AnalyzePage() {
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', color: 'var(--danger)' }}>
               <AlertTriangle size={18} />
-              <span style={{ fontSize: '0.875rem' }}>{modelError}</span>
+              <span style={{ fontSize: '0.875rem' }}>
+                {typeof modelError === 'object' && modelError !== null ? modelError.message : modelError}
+              </span>
             </div>
             <button
               type="button"
+              id="retry-model-init-btn"
               onClick={initModel}
               className="btn-secondary btn-sm"
               style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
             >
-              <RefreshCw size={13} /> Retry Download
+              <RefreshCw size={13} /> Retry Initialization
             </button>
           </div>
         )}

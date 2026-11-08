@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { collection, query, orderBy, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -9,8 +9,6 @@ import {
   AlertTriangle,
   RefreshCw,
   FolderOpen,
-  Calendar,
-  Layers,
   ArrowRight
 } from 'lucide-react';
 
@@ -21,7 +19,7 @@ function HistoryPage() {
   const [error, setError] = useState(null);
   const [filter, setFilter] = useState('ALL');
 
-  const fetchAnalyses = async () => {
+  const fetchAnalyses = useCallback(async () => {
     if (!currentUser) return;
     setLoading(true);
     setError(null);
@@ -42,12 +40,12 @@ function HistoryPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentUser]);
 
   useEffect(() => {
     document.title = 'InsightX | Clinical Analysis History';
     fetchAnalyses();
-  }, [currentUser]);
+  }, [fetchAnalyses]);
 
   const filteredItems = analyses.filter((item) => {
     if (filter === 'ALL') return true;

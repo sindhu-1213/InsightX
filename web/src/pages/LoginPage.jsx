@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth, getFriendlyAuthErrorMessage } from '../context/AuthContext';
-import { ShieldCheck, Mail, Lock, AlertCircle, CheckCircle, RefreshCw } from 'lucide-react';
+import { ShieldCheck, AlertCircle, RefreshCw } from 'lucide-react';
 
 function LoginPage() {
   const [email, setEmail] = useState('');

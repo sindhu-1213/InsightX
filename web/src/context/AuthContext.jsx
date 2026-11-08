@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -148,7 +148,7 @@ export function AuthProvider({ children }) {
     try {
       await setDoc(doc(db, 'users', user.uid), profileData);
       setUserProfile(profileData);
-    } catch (_e) {
+    } catch {
       // If firestore rules require verified email before writing, persist to localStorage
       localStorage.setItem(`insightx_profile_${user.uid}`, JSON.stringify(profileData));
     }

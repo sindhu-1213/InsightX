@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import { useRef } from 'react';
 import logoAnimation from '../assets/logo-animation.mp4';
 
 function SplashScreen({ onFinish }) {

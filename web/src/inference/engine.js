@@ -48,29 +48,47 @@ export class ClientSideInferenceEngine {
 
   /**
    * Fetch a binary array buffer with progress reporting, backed by CacheStorage when available.
+   * Resilient to CacheStorage failures, HTML SPA fallbacks, and missing Content-Length.
    */
   async _fetchWithCache(url, onProgress = null) {
-    // Check CacheStorage in browser
+    // 1. Try CacheStorage in browser (fail-soft: any cache error falls back to network)
     if (typeof caches !== 'undefined') {
       try {
         const cache = await caches.open(CACHE_NAME);
         const cachedRes = await cache.match(url);
         if (cachedRes) {
-          if (onProgress) onProgress(100, 'Loaded from cache');
-          return await cachedRes.arrayBuffer();
+          const contentType = (cachedRes.headers.get('content-type') || '').toLowerCase();
+          // If cached response was inadvertently an SPA fallback HTML or empty, purge it
+          if (!contentType.includes('text/html')) {
+            const cachedBuf = await cachedRes.arrayBuffer();
+            if (cachedBuf && cachedBuf.byteLength > 1024) {
+              if (onProgress) onProgress(100, 'Loaded from cache');
+              return cachedBuf;
+            }
+          }
+          console.warn('[InsightX Cache Warning] Purging corrupt or HTML cache entry for:', url);
+          await cache.delete(url);
         }
       } catch (cacheErr) {
-        console.warn('[InsightX Cache Warning]', cacheErr);
+        console.warn('[InsightX Cache Warning] Cache read failed; falling back to direct network fetch:', cacheErr);
       }
     }
 
-    // Fetch from network with stream progress
+    // 2. Fetch from network with stream progress reporting
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`Failed to download model asset from ${url} (HTTP ${response.status})`);
     }
 
-    const contentLength = Number(response.headers.get('content-length')) || 0;
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+    if (contentType.includes('text/html')) {
+      throw new Error(
+        `Server returned HTML instead of model weights for ${url} (SPA fallback). Ensure model assets are deployed in /models/.`
+      );
+    }
+
+    const rawContentLength = response.headers.get('content-length');
+    const contentLength = rawContentLength ? Math.max(0, Number(rawContentLength) || 0) : 0;
     let receivedBytes = 0;
     const reader = response.body ? response.body.getReader() : null;
 
@@ -82,9 +100,15 @@ export class ClientSideInferenceEngine {
         if (done) break;
         chunks.push(value);
         receivedBytes += value.length;
-        if (contentLength > 0 && onProgress) {
-          const percent = Math.min(100, Math.round((receivedBytes / contentLength) * 100));
-          onProgress(percent, `Downloading weights: ${percent}%`);
+        if (onProgress) {
+          if (contentLength > 0) {
+            const percent = Math.min(100, Math.round((receivedBytes / contentLength) * 100));
+            const mb = (receivedBytes / (1024 * 1024)).toFixed(1);
+            onProgress(percent, `Downloading weights: ${percent}% (${mb} MB)`);
+          } else {
+            const mb = (receivedBytes / (1024 * 1024)).toFixed(1);
+            onProgress(50, `Downloading weights: ${mb} MB`);
+          }
         }
       }
       const allChunks = new Uint8Array(receivedBytes);
@@ -99,18 +123,25 @@ export class ClientSideInferenceEngine {
       if (onProgress) onProgress(100, 'Downloaded');
     }
 
-    // Store into CacheStorage
+    if (!buffer || buffer.byteLength <= 1024) {
+      throw new Error(`Downloaded model buffer from ${url} is empty or invalid (${buffer?.byteLength || 0} bytes).`);
+    }
+
+    // 3. Store into CacheStorage (fail-soft: any put error is non-fatal)
     if (typeof caches !== 'undefined') {
       try {
         const cache = await caches.open(CACHE_NAME);
-        await cache.put(url, new Response(buffer.slice(0), {
-          headers: {
-            'Content-Type': 'application/octet-stream',
-            'Content-Length': String(buffer.byteLength)
-          }
-        }));
+        await cache.put(
+          url,
+          new Response(buffer.slice(0), {
+            headers: {
+              'Content-Type': 'application/octet-stream',
+              'Content-Length': String(buffer.byteLength)
+            }
+          })
+        );
       } catch (cacheErr) {
-        console.warn('[InsightX Cache Put Warning]', cacheErr);
+        console.warn('[InsightX Cache Put Warning] Cache write failed; proceeding un-cached:', cacheErr);
       }
     }
 
@@ -153,7 +184,11 @@ export class ClientSideInferenceEngine {
         ort.env.wasm.numThreads = 1; // single-thread SIMD: no cross-origin isolation needed
         ort.env.wasm.simd = true;
         const wasmBase = this.resolveAssetUrl('wasm/');
-        ort.env.wasm.wasmPaths = wasmBase.endsWith('/') ? wasmBase : `${wasmBase}/`;
+        const wasmClean = wasmBase.endsWith('/') ? wasmBase : `${wasmBase}/`;
+        ort.env.wasm.wasmPaths = {
+          wasm: `${wasmClean}ort-wasm-simd-threaded.wasm`,
+          mjs: `${wasmClean}ort-wasm-simd-threaded.mjs`
+        };
       } else {
         // Node environment for parity tests
         const pkg = 'onnxruntime-' + 'node';
@@ -169,10 +204,22 @@ export class ClientSideInferenceEngine {
 
       if (onProgress) onProgress(90, 'Compiling WebAssembly execution graph...');
 
-      // 5. Create InferenceSession
-      this.session = await ort.InferenceSession.create(modelBuffer, {
-        executionProviders: ['wasm']
-      });
+      // 5. Create InferenceSession (with fail-soft cache cleanup on session failure)
+      try {
+        this.session = await ort.InferenceSession.create(modelBuffer, {
+          executionProviders: ['wasm']
+        });
+      } catch (sessionErr) {
+        if (typeof caches !== 'undefined') {
+          try {
+            const cache = await caches.open(CACHE_NAME);
+            await cache.delete(modelUrl);
+          } catch (e) {
+            console.debug('Failed to purge stale model cache:', e);
+          }
+        }
+        throw sessionErr;
+      }
 
       this.inputName = this.session.inputNames[0] || 'image_input';
 

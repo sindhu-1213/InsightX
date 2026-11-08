@@ -44,6 +44,8 @@ export default defineConfig({
         ]
       },
       workbox: {
+        skipWaiting: true,
+        clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,mp4}'],
         globIgnores: ['**/models/**', '**/wasm/**', '**/samples/**']
       }
