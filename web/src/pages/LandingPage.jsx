@@ -1,12 +1,10 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import HeroSection from '../components/HeroSection';
 import {
   UploadCloud,
   Cpu,
   Layers,
-  FileText,
-  ShieldCheck,
   CheckCircle,
   Eye,
   ArrowRight
@@ -154,7 +152,7 @@ function LandingPage() {
             }}
           >
             <div>
-              <span className="badge-cyan" style={{ marginBottom: '1rem' }}>Multimodal Grounding</span>
+              <span className="badge-cyan" style={{ marginBottom: '1rem' }}>Clinical Research Focus</span>
               <h2
                 style={{
                   fontSize: 'clamp(1.75rem, 3.5vw, 2.4rem)',
@@ -165,12 +163,13 @@ function LandingPage() {
                 Why Image-Based Serving Outperforms Naive Text
               </h2>
               <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem', lineHeight: '1.7' }}>
-                While text-based models appear unrealistically high on evaluation sets because MeSH labels derive
-                from the radiologist reports themselves, <strong>real-world clinical practice requires analyzing images directly</strong>.
+                While multimodal research benchmarks demonstrated text correlation during offline evaluation,
+                <strong> real-world clinical practice requires analyzing images directly</strong> without relying on
+                pre-existing radiology reports.
               </p>
               <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem', lineHeight: '1.7' }}>
-                INSIGHT-X preserves critical medical negations (<em>no</em>, <em>not</em>, <em>without</em>) in its
-                NLP pipeline and deploys the purely visual MobileNetV2 ONNX model to deliver independent decision support.
+                InsightX deploys the purely visual MobileNetV2 ONNX model with in-browser WebAssembly execution
+                to deliver independent, zero-latency clinical decision support without uploading patient radiographs.
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '2rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -191,7 +190,7 @@ function LandingPage() {
               </Link>
             </div>
 
-            {/* Diagnostic Card Preview */}
+            {/* Diagnostic Card Preview with Real Precomputed Sample Data */}
             <div
               className="card"
               style={{
@@ -203,7 +202,7 @@ function LandingPage() {
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
                 <span style={{ fontFamily: 'var(--font-heading)', color: '#00d4ff', fontSize: '0.9rem' }}>
-                  DEMO PREVIEW // UID-0038
+                  DEMO PREVIEW // SAMPLE 04
                 </span>
                 <span className="badge-cyan" style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#ff6b6b', borderColor: '#ef4444' }}>
                   Abnormal
@@ -214,7 +213,7 @@ function LandingPage() {
                   height: '180px',
                   backgroundColor: '#041428',
                   borderRadius: '8px',
-                  border: '1px dashed var(--border)',
+                  border: '1px solid var(--border)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -223,28 +222,38 @@ function LandingPage() {
                   overflow: 'hidden'
                 }}
               >
+                <img
+                  src="/samples/sample_04_abnormal.png"
+                  alt="Sample 04 Radiograph Preview"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
                 <div
                   style={{
                     position: 'absolute',
-                    inset: 0,
-                    background: 'radial-gradient(circle at 60% 40%, rgba(255, 65, 54, 0.4) 0%, rgba(255, 133, 27, 0.2) 40%, transparent 70%)'
+                    bottom: '0.5rem',
+                    right: '0.5rem',
+                    backgroundColor: 'rgba(2, 11, 24, 0.85)',
+                    padding: '0.2rem 0.5rem',
+                    borderRadius: '4px',
+                    fontSize: '0.7rem',
+                    color: '#00d4ff',
+                    border: '1px solid rgba(0, 212, 255, 0.3)'
                   }}
-                />
-                <span style={{ position: 'relative', zIndex: 1, color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                  [Grad-CAM Attention Heatmap Overlay]
-                </span>
+                >
+                  Grad-CAM Feature Overlay
+                </div>
               </div>
               <div style={{ marginBottom: '1rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '0.35rem' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>Calibrated Probability</span>
-                  <span style={{ color: '#00d4ff', fontWeight: 700 }}>68.4%</span>
+                  <span style={{ color: '#00d4ff', fontWeight: 700 }}>67.5%</span>
                 </div>
                 <div style={{ height: '8px', backgroundColor: '#06172a', borderRadius: '4px', overflow: 'hidden' }}>
-                  <div style={{ width: '68.4%', height: '100%', background: 'linear-gradient(90deg, #00d4ff, #ff4757)' }} />
+                  <div style={{ width: '67.5%', height: '100%', background: 'linear-gradient(90deg, #00d4ff, #ff4757)' }} />
                 </div>
               </div>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>
-                Calibrated via Platt scaling (intercept: -0.3204, slope: 1.1093).
+                Calibrated via Platt scaling (slope: 0.8151, intercept: 0.6796; threshold: 0.6522).
               </p>
             </div>
           </div>

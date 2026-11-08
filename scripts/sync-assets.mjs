@@ -68,5 +68,13 @@ if (fs.existsSync(wasmSrcDir)) {
   console.warn(`[sync-assets] Note: onnxruntime-web/dist not found at ${wasmSrcDir}`);
 }
 
+// 4. Sync metrics.json as single source of truth
+const metricsSrc = path.join(REPO_ROOT, 'reports', 'metrics.json');
+const metricsDest = path.join(REPO_ROOT, 'web', 'src', 'data', 'metrics.json');
+if (fs.existsSync(metricsSrc)) {
+  fs.mkdirSync(path.dirname(metricsDest), { recursive: true });
+  copyFileSafe(metricsSrc, metricsDest);
+}
+
 console.log('[sync-assets] Asset synchronization complete.');
 

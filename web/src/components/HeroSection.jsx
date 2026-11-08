@@ -1,6 +1,6 @@
-import React from 'react';
 import { Link } from 'react-router-dom';
-import { Sparkles, ArrowRight, ShieldCheck, Cpu, Database } from 'lucide-react';
+import { Sparkles, ArrowRight, Cpu, Database } from 'lucide-react';
+import metricsData from '../data/metrics.json';
 
 function HeroSection() {
   return (
@@ -67,8 +67,8 @@ function HeroSection() {
             fontFamily: 'var(--font-body)'
           }}
         >
-          InsightX combines deep learning, medical text analysis, and explainable AI to assist healthcare
-          professionals in detecting abnormalities from chest radiographs.
+          InsightX combines deep radiological vision, Platt probability calibration, and explainable Grad-CAM heatmaps
+          as an experimental research prototype for chest radiograph analysis. Everything runs on your device.
         </p>
 
         {/* Action Buttons */}
@@ -125,7 +125,7 @@ function HeroSection() {
               <span style={{ fontSize: '0.85rem', color: '#8ab4c9', fontWeight: 600 }}>MobileNetV2 CNN</span>
             </div>
             <div style={{ fontSize: '1.3rem', fontWeight: 700, color: '#ffffff', fontFamily: 'var(--font-heading)' }}>
-              0.706 ROC-AUC
+              {metricsData.roc_auc ? Number(metricsData.roc_auc).toFixed(4) : '0.7563'} ROC-AUC
             </div>
             <p style={{ fontSize: '0.8rem', color: '#4e738a', marginTop: '0.25rem' }}>
               Platt calibrated probability output

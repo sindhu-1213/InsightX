@@ -1,13 +1,9 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import metricsData from '../data/metrics.json';
 import {
   Brain,
   ShieldAlert,
-  AlertTriangle,
-  Database,
-  BarChart3,
-  Layers,
-  Sliders
+  AlertTriangle
 } from 'lucide-react';
 
 function ModelPage() {
@@ -126,7 +122,7 @@ function ModelPage() {
           Model Card &amp; Technical Architecture
         </h1>
         <p style={{ color: 'var(--text-secondary)', fontSize: '1.05rem', lineHeight: '1.6' }}>
-          Comprehensive specifications, test evaluation metrics, multimodal baselines, and safety limitations for InsightX.
+          Comprehensive specifications, test evaluation metrics, offline research baselines, and safety limitations for InsightX.
         </p>
       </div>
 
@@ -190,7 +186,7 @@ function ModelPage() {
             Inference &amp; Explainability Pipeline
           </h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-            From in-memory radiograph ingest to pure NumPy spatial Grad-CAM activation and calibrated probabilities.
+            From zero-install browser Canvas 2D ingest to WebAssembly SIMD inference, pure-JS Grad-CAM blending, and client-side Platt calibration. The FastAPI service in the repo serves as the offline reference implementation.
           </p>
         </div>
 
@@ -241,10 +237,10 @@ function ModelPage() {
               </div>
               <div style={{ flex: 1 }}>
                 <h3 style={{ fontSize: '1rem', color: '#ffffff', marginBottom: '0.2rem' }}>
-                  Image Acquisition &amp; Preprocessing
+                  Client-Side Ingest &amp; Canvas 2D Preprocessing
                 </h3>
                 <p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', margin: 0 }}>
-                  224×224 normalization, grayscale replication to 3 RGB channels, and MobileNetV2 pixel scaling [-1, 1]. Ingested strictly in RAM.
+                  Radiographs are decoded locally via HTML5 Canvas 2D with aspect-preserving padding into a 224×224 buffer, replicated across 3 RGB channels, and normalized to [-1, 1] (MobileNetV2 scale). Zero image bytes leave your browser.
                 </p>
               </div>
             </div>
@@ -282,10 +278,10 @@ function ModelPage() {
               </div>
               <div style={{ flex: 1 }}>
                 <h3 style={{ fontSize: '1rem', color: '#ffffff', marginBottom: '0.2rem' }}>
-                  Dual-Output ONNX Inference
+                  In-Browser WebAssembly SIMD Inference
                 </h3>
                 <p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', margin: 0 }}>
-                  Evaluated with ONNX Runtime on CPU (<code style={{ color: '#00d4ff' }}>insightx_gradcam.onnx</code>, 8.50 MB), outputting linear logit and (7, 7, 1280) conv feature map.
+                  Evaluated locally using onnxruntime-web with WebAssembly SIMD acceleration (<code style={{ color: '#00d4ff' }}>insightx_gradcam.onnx</code>, 8.50 MB cached in CacheStorage), outputting a linear logit and (7, 7, 1280) conv feature map directly on your CPU.
                 </p>
               </div>
             </div>
@@ -326,7 +322,7 @@ function ModelPage() {
                   Validation-Fitted Platt Probability Scaling
                 </h3>
                 <p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', margin: 0 }}>
-                  Transforms log-odds into calibrated empirical probabilities via logistic regression fitted on the validation partition.
+                  Transforms raw logit into calibrated probability in JavaScript using empirical parameters (slope: 0.8151, intercept: 0.6796) and validation-optimal Youden threshold (0.6522).
                 </p>
               </div>
             </div>
@@ -364,10 +360,10 @@ function ModelPage() {
               </div>
               <div style={{ flex: 1 }}>
                 <h3 style={{ fontSize: '1rem', color: '#00d4ff', marginBottom: '0.2rem' }}>
-                  NumPy Grad-CAM &amp; Response Serialization
+                  Pure-JavaScript Grad-CAM &amp; Overlay Rendering
                 </h3>
                 <p style={{ fontSize: '0.825rem', color: '#ffffff', margin: 0 }}>
-                  Computes ReLU(sum(w_k * A_k)) heatmap overlay and returns calibrated probability to client without TensorFlow dependencies.
+                  Computes ReLU(sum(w_k * A_k)), crops out aspect padding to prevent heatmap distortion, normalizes [0, 1], applies an RGB jet colormap, and alpha-blends onto the original image entirely in the browser.
                 </p>
               </div>
             </div>

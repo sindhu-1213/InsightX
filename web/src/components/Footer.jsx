@@ -1,6 +1,5 @@
-import React from 'react';
 import { Link } from 'react-router-dom';
-import { AlertCircle, ShieldAlert, Heart, ExternalLink, Activity } from 'lucide-react';
+import { ShieldAlert, ExternalLink, Activity } from 'lucide-react';
 
 function Footer() {
   return (
@@ -85,8 +84,8 @@ function Footer() {
               </span>
             </div>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', lineHeight: '1.6' }}>
-              Multimodal clinical decision support system fusing deep radiological vision with medical NLP
-              and explainable activation heatmaps.
+              Explainable chest X-ray research prototype combining in-browser neural vision with Platt calibration
+              and spatial Grad-CAM attention heatmaps. Zero data leaves your device.
             </p>
           </div>
 
@@ -149,7 +148,7 @@ function Footer() {
           }}
         >
           <span>&copy; {new Date().getFullYear()} InsightX Research Team. Strictly for investigational use.</span>
-          <span>Engineered with MobileNetV2, ONNX Runtime &amp; FastAPI</span>
+          <span>Live In-Browser Architecture: WebAssembly SIMD + Platt Calibration + Grad-CAM (FastAPI reference in repo)</span>
         </div>
       </div>
     </footer>
